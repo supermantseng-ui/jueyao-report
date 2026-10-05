@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>經營報表</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  /* ---------- 設定 ---------- */
+  :root {
+    --concrete: #E9ECEA;   /* 底色：水泥灰 */
+    --slab:     #F6F7F6;   /* 區塊 */
+    --ink:      #1E2B2F;   /* 主要文字 */
+    --muted:    #5F6B6E;   /* 次要文字 */
+    --rule:     #C9CFCC;   /* 分隔線 */
+    --steel:    #2F5D7C;   /* 主色：鋼藍 */
+    --steel-lt: #B9CBD7;
+    --safety:   #E8B21E;   /* 警示：安全黃 */
+    --gain:     #2F7A55;
+    --loss:     #B23A2E;
+    --num: 'Barlow Semi Condensed', 'Noto Sans TC', sans-serif;
+    --txt: 'Noto Sans TC', -apple-system, 'Microsoft JhengHei', sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --concrete: #1B2224; --slab: #232C2F; --ink: #E4E9E7; --muted: #9AA6A8;
+      --rule: #3A4548; --steel: #7FA8C4; --steel-lt: #3D5566;
+      --gain: #6FBF95; --loss: #E07A6E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --concrete: #1B2224; --slab: #232C2F; --ink: #E4E9E7; --muted: #9AA6A8;
+    --rule: #3A4548; --steel: #7FA8C4; --steel-lt: #3D5566;
+    --gain: #6FBF95; --loss: #E07A6E;
+  }
+
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0; background: var(--concrete); color: var(--ink);
+    font-family: var(--txt); font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .num { font-family: var(--num); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--safety); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  /* ---------- 登入 ---------- */
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login form {
+    width: 100%; max-width: 360px; background: var(--slab);
+    border-top: 6px solid var(--steel); padding: 32px 28px 28px;
+  }
+  .login h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  .login p { margin: 0 0 24px; color: var(--muted); font-size: .9rem; }
+  .field { display: block; margin-bottom: 16px; }
+  .field span { display: block; font-size: .875rem; color: var(--muted); margin-bottom: 4px; }
+  .field input {
+    width: 100%; padding: 10px 12px; background: var(--concrete);
+    border: 1px solid var(--rule); border-radius: 2px;
+  }
+  .btn {
+    width: 100%; padding: 11px; border: 0; border-radius: 2px; cursor: pointer;
+    background: var(--steel); color: #fff; font-weight: 700;
+  }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .error { color: var(--loss); font-size: .875rem; margin: 12px 0 0; min-height: 1.4em; }
+
+  /* ---------- 版面 ---------- */
+  header.top {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    max-width: 1080px; margin: 0 auto; padding: 20px 24px 8px;
+  }
+  header.top h1 { margin: 0; font-size: 1.125rem; font-weight: 700; }
+  header.top .who { color: var(--muted); font-size: .875rem; }
+  header.top .who button {
+    background: none; border: 0; color: var(--steel); cursor: pointer; padding: 0 0 0 12px;
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+  main { max-width: 1080px; margin: 0 auto; padding: 8px 24px 48px; }
+  section { margin-top: 32px; }
+  h2 { font-size: 1rem; margin: 0 0 12px; font-weight: 700; }
+  .note { color: var(--muted); font-size: .875rem; margin: 6px 0 0; }
+
+  /* ---------- 結算單（主角） ---------- */
+  .ledger {
+    background: var(--slab); padding: 28px 32px 32px; position: relative;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 40px; align-items: end;
+  }
+  .ledger .month { grid-column: 1 / -1; color: var(--muted); font-size: .95rem; margin-bottom: 8px; }
+  .footing { max-width: 520px; }
+  .footing .row {
+    display: grid; grid-template-columns: 1.5em 1fr auto; align-items: baseline;
+    padding: 6px 0;
+  }
+  .footing .op { color: var(--muted); font-family: var(--num); font-size: 1.4rem; }
+  .footing .label { font-size: 1rem; }
+  .footing .amt { font-size: clamp(1.75rem, 4vw, 2.5rem); font-weight: 600; text-align: right; }
+  .footing .total { border-top: 2px solid var(--ink); margin-top: 6px; padding-top: 10px; }
+  .footing .total .amt { color: var(--steel); font-size: clamp(2.5rem, 7vw, 4rem); font-weight: 700; }
+  .footing .total::after {          /* 雙底線：會計加總收尾 */
+    content: ''; grid-column: 1 / -1; height: 7px; margin-top: 8px;
+    border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink);
+  }
+  .rate { text-align: right; padding-bottom: 22px; }
+  .rate .v { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; display: block; line-height: 1; }
+  .rate .k { color: var(--muted); font-size: .875rem; }
+  .stamp {
+    position: absolute; top: 22px; right: 28px; transform: rotate(-8deg);
+    border: 3px solid var(--safety); color: #8A6400; padding: 2px 12px;
+    font-weight: 700; font-size: 1.05rem; letter-spacing: .2em; border-radius: 3px;
+    background: color-mix(in srgb, var(--safety) 12%, transparent);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .stamp { color: var(--safety); } }
+  .bytype { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 28px; margin-top: 16px; color: var(--muted); font-size: .9rem; }
+  .bytype b { color: var(--ink); font-weight: 600; font-family: var(--num); font-size: 1.05rem; margin-left: 6px; }
+
+  /* ---------- 趨勢 ---------- */
+  .chart-wrap { overflow-x: auto; background: var(--slab); padding: 20px 16px 8px; }
+  .chart-wrap svg { display: block; min-width: 560px; width: 100%; height: auto; }
+  .legend { display: flex; gap: 20px; font-size: .875rem; color: var(--muted); margin: 0 0 8px 8px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+
+  /* ---------- 資金位置 ---------- */
+  .position { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; background: var(--slab); }
+  .position > div { padding: 20px 24px; border-left: 4px solid var(--rule); }
+  .position > div:first-child { border-left-color: var(--steel); }
+  .position > div:nth-child(2) { border-left-color: var(--muted); }
+  .position > div:nth-child(3) { border-left-color: var(--steel-lt); }
+  .position h3 { margin: 0 0 4px; font-size: .95rem; font-weight: 500; color: var(--muted); }
+  .position .big { font-size: 2rem; font-weight: 600; line-height: 1.2; }
+  .position dl { margin: 10px 0 0; display: grid; grid-template-columns: auto auto; justify-content: space-between; gap: 2px 12px; font-size: .875rem; }
+  .position dt { color: var(--muted); }
+  .position dd { margin: 0; text-align: right; font-family: var(--num); font-size: 1rem; }
+  .position .warn { color: var(--loss); font-weight: 600; }
+
+  /* ---------- 客戶排名 ---------- */
+  .table-wrap { overflow-x: auto; background: var(--slab); }
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th { font-weight: 500; color: var(--muted); font-size: .85rem; }
+  td.r, th.r { text-align: right; }
+  .bar { display: inline-block; height: 8px; background: var(--steel); vertical-align: middle; margin-left: 8px; }
+  .empty { padding: 28px 16px; color: var(--muted); }
+
+  @media (max-width: 720px) {
+    header.top, main { padding-left: 16px; padding-right: 16px; }
+    .ledger { grid-template-columns: 1fr; padding: 24px 20px; }
+    .rate { text-align: left; padding-bottom: 0; }
+    .position { grid-template-columns: 1fr; }
+    .position > div + div { border-top: 1px solid var(--rule); }
+    .stamp { top: 16px; right: 16px; }
+    .ledger .month { padding-right: 84px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ledger.reveal .total { animation: settle .6s ease-out .15s both; }
+    @keyframes settle { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+
+<!-- 登入 -->
+<div class="login" id="login-view" hidden>
+  <form id="login-form" novalidate>
+    <h1>經營報表</h1>
+    <p>請用公司開通的帳號登入</p>
+    <label class="field"><span>電子郵件</span>
+      <input type="email" id="email" autocomplete="username" required></label>
+    <label class="field"><span>密碼</span>
+      <input type="password" id="password" autocomplete="current-password" required></label>
+    <button class="btn" type="submit" id="login-btn">登入</button>
+    <p class="error" id="login-error" role="alert"></p>
+  </form>
+</div>
+
+<!-- 報表 -->
+<div id="app-view" hidden>
+  <header class="top">
+    <h1>經營報表</h1>
+    <div class="who"><span id="who-name"></span><button type="button" id="logout-btn">登出</button></div>
+  </header>
+  <main>
+    <p class="note" id="loading">讀取中…</p>
+    <p class="error" id="app-error" role="alert"></p>
+    <div id="content" hidden>
+      <div class="ledger" id="ledger"></div>
+
+      <section>
+        <h2>近 12 個月營收與毛利</h2>
+        <div class="chart-wrap">
+          <div class="legend"><span><i style="background:var(--steel-lt)"></i>營收</span><span><i style="background:var(--steel)"></i>毛利</span></div>
+          <div id="chart"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>資金位置</h2>
+        <div class="position" id="position"></div>
+        <p class="note">應收、應付的「已開發票／已請款」為含稅金額；「待開」為未稅金額，開立時另加 5% 營業稅。</p>
+      </section>
+
+      <section>
+        <h2>本月客戶毛利排行</h2>
+        <div class="table-wrap" id="customers"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ===== 設定：換成你的 Supabase 專案 ===== */
+const SUPABASE_URL = 'https://<專案代號>.supabase.co';
+const SUPABASE_ANON_KEY = '<anon public key>';
+/* ======================================= */
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('zh-TW');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const monthLabel = (ym) => { const [y, m] = ym.split('-'); return `${y} 年 ${Number(m)} 月`; };
+
+async function api(action) {
+  const { data, error } = await sb.functions.invoke('report-api', { body: { action } });
+  if (error) {
+    let msg = '讀取資料失敗，請稍後再試';
+    try { const body = await error.context.json(); if (body?.error) msg = body.error; } catch (_) {}
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function show(view) {
+  $('login-view').hidden = view !== 'login';
+  $('app-view').hidden = view !== 'app';
+}
+
+/* ---------- 登入 ---------- */
+$('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('login-btn');
+  $('login-error').textContent = '';
+  btn.disabled = true; btn.textContent = '登入中…';
+  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
+  btn.disabled = false; btn.textContent = '登入';
+  if (error) { $('login-error').textContent = '電子郵件或密碼不正確'; return; }
+  start();
+});
+
+$('logout-btn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  show('login');
+});
+
+/* ---------- 報表 ---------- */
+async function start() {
+  show('app');
+  $('content').hidden = true; $('loading').hidden = false; $('app-error').textContent = '';
+  try {
+    const [me, d] = await Promise.all([api('me'), api('dashboard')]);
+    $('who-name').textContent = me.displayName || me.email;
+    renderLedger(d); renderChart(d.trend); renderPosition(d); renderCustomers(d.topCustomers);
+    $('content').hidden = false;
+  } catch (err) {
+    $('app-error').textContent = err.message;
+  } finally {
+    $('loading').hidden = true;
+  }
+}
+
+function renderLedger(d) {
+  const total = d.byType.find((r) => r['類型'] === '合計') || { 營收: 0, 成本: 0, 毛利: 0, 毛利率: null, 含預估成本: false };
+  const types = d.byType.filter((r) => r['類型'] !== '合計');
+  const missing = d.byType.reduce((s, r) => s + (r['類型'] === '合計' ? Number(r['缺成本筆數']) || 0 : 0), 0);
+  $('ledger').innerHTML = `
+    ${total['含預估成本'] ? '<span class="stamp" title="本月尚未結帳，成本依目前進貨預估，月底可能變動">預估</span>' : ''}
+    <div class="month">${monthLabel(d.month)}　毛利結算（未稅）</div>
+    <div class="footing">
+      <div class="row"><span class="op"></span><span class="label">營收</span><span class="amt num">${fmt(total['營收'])}</span></div>
+      <div class="row"><span class="op">−</span><span class="label">成本</span><span class="amt num">${fmt(total['成本'])}</span></div>
+      <div class="row total"><span class="op"></span><span class="label">毛利</span><span class="amt num">${fmt(total['毛利'])}</span></div>
+    </div>
+    <div class="rate"><span class="v num">${total['毛利率'] == null ? '—' : total['毛利率'] + '%'}</span><span class="k">毛利率</span></div>
+    ${types.length ? `<div class="bytype">${types.map((t) => `<span>${esc(t['類型'])}<b>${fmt(t['毛利'])}</b>（${t['毛利率'] ?? '—'}%）</span>`).join('')}</div>` : ''}
+    ${missing ? `<p class="note warn" style="grid-column:1/-1;color:var(--loss)">有 ${missing} 筆品項查不到成本，毛利可能偏高，請確認報價或進貨成本。</p>` : ''}
+  `;
+  $('ledger').classList.add('reveal');
+}
+
+function renderChart(rows) {
+  if (!rows.length) { $('chart').innerHTML = '<p class="empty">還沒有已認列的銷貨資料。</p>'; return; }
+  const W = 760, H = 240, pl = 56, pr = 12, pt = 12, pb = 36;
+  const max = Math.max(...rows.map((r) => Number(r['營收']) || 0), 1);
+  const step = (W - pl - pr) / rows.length, bw = Math.min(36, step * 0.6);
+  const y = (v) => pt + (H - pt - pb) * (1 - (Number(v) || 0) / max);
+  const ticks = [0, 0.5, 1].map((t) => max * t);
+  const grid = ticks.map((t) => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" stroke="var(--rule)"/>
+    <text x="${pl - 8}" y="${y(t) + 4}" text-anchor="end" font-size="12" fill="var(--muted)" font-family="var(--num)">${fmt(t)}</text>`).join('');
+  const bars = rows.map((r, i) => {
+    const x = pl + step * i + (step - bw) / 2;
+    const rev = Number(r['營收']) || 0, gp = Math.max(Number(r['毛利']) || 0, 0);
+    const [, m] = r['月份'].split('-');
+    return `<g><title>${esc(r['月份'])}　營收 ${fmt(rev)}　毛利 ${fmt(r['毛利'])}（${r['毛利率'] ?? '—'}%）</title>
+      <rect x="${x}" y="${y(rev)}" width="${bw}" height="${y(0) - y(rev)}" fill="var(--steel-lt)"/>
+      <rect x="${x + bw * 0.2}" y="${y(gp)}" width="${bw * 0.6}" height="${y(0) - y(gp)}" fill="var(--steel)"/>
+      <text x="${x + bw / 2}" y="${H - pb + 18}" text-anchor="middle" font-size="12" fill="var(--muted)" font-family="var(--num)">${Number(m)}月</text></g>`;
+  }).join('');
+  $('chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="近 12 個月營收與毛利長條圖">${grid}${bars}</svg>`;
+}
+
+function renderPosition(d) {
+  const inv = d.inventory;
+  $('position').innerHTML = `
+    <div><h3>應收帳款</h3>
+      <div class="big num">${fmt(d.ar.outstanding)}</div>
+      <dl><dt>已開發票未收</dt><dd>${fmt(d.ar.outstanding)}</dd>
+          <dt>其中逾期</dt><dd class="${d.ar.overdue > 0 ? 'warn' : ''}">${fmt(d.ar.overdue)}</dd>
+          <dt>待開發票</dt><dd>${fmt(d.ar.uninvoiced)}</dd></dl></div>
+    <div><h3>應付帳款</h3>
+      <div class="big num">${fmt(d.ap.outstanding)}</div>
+      <dl><dt>已請款未付</dt><dd>${fmt(d.ap.outstanding)}</dd>
+          <dt>其中逾期</dt><dd class="${d.ap.overdue > 0 ? 'warn' : ''}">${fmt(d.ap.overdue)}</dd>
+          <dt>待彙總請款</dt><dd>${fmt(d.ap.unbilled)}</dd></dl></div>
+    <div><h3>存貨價值</h3>
+      <div class="big num">${fmt(inv.amount)}</div>
+      <dl><dt>有庫存品項</dt><dd>${inv.items}</dd>
+          <dt>負庫存品項</dt><dd class="${inv.negative > 0 ? 'warn' : ''}">${inv.negative}</dd>
+          <dt>計算月份</dt><dd>${inv.period ? monthLabel(inv.period) : '—'}</dd></dl></div>`;
+}
+
+function renderCustomers(rows) {
+  if (!rows.length) { $('customers').innerHTML = '<p class="empty">本月還沒有已認列的銷貨。</p>'; return; }
+  const max = Math.max(...rows.map((r) => Math.abs(Number(r['毛利']) || 0)), 1);
+  $('customers').innerHTML = `<table>
+    <thead><tr><th>客戶</th><th>建案</th><th class="r">營收</th><th class="r">毛利</th><th class="r">毛利率</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      <td>${esc(r['客戶名稱'])}</td><td>${esc(r['建案']) || '—'}</td>
+      <td class="r num">${fmt(r['營收'])}</td>
+      <td class="r num">${fmt(r['毛利'])}<span class="bar" style="width:${Math.round(60 * Math.abs(r['毛利']) / max)}px"></span></td>
+      <td class="r num">${r['毛利率'] ?? '—'}%</td></tr>`).join('')}</tbody></table>`;
+}
+
+/* ---------- 啟動 ---------- */
+sb.auth.getSession().then(({ data }) => (data.session ? start() : show('login')));
+sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') show('login'); });
+</script>
+</body>
+</html>
