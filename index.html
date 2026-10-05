@@ -52,7 +52,7 @@
   :focus-visible { outline: 3px solid var(--safety); outline-offset: 2px; }
   [hidden] { display: none !important; }
 
-  /* ---------- 登入 ---------- */
+  /* ---------- 登入畫面 ---------- */
   .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
   .login form {
     width: 100%; max-width: 360px; background: var(--slab);
@@ -192,6 +192,35 @@
   .subhead h2 { margin: 0; }
   .ledger-panel { margin-top: 28px; }
 
+  /* ---------- 會計操作 ---------- */
+  .ops { display: none !important; }
+  body.can-write .ops { display: revert !important; }
+  body.can-write .ops.flex { display: flex !important; }
+  body.can-write .ops[hidden] { display: none !important; }
+  .opsbar { flex-wrap: wrap; gap: 10px; margin: 24px 0 0; }
+  .btn-solid { background: var(--steel); color: #fff; border: 1px solid var(--steel); padding: 7px 16px; border-radius: 2px; cursor: pointer; font-weight: 700; }
+  .act { background: none; border: 0; color: var(--steel); cursor: pointer; padding: 2px 6px; text-decoration: underline; text-underline-offset: 3px; font-size: .875rem; }
+  .act.danger { color: var(--loss); }
+  dialog { border: 0; padding: 0; max-width: min(460px, calc(100vw - 32px)); width: 100%; background: var(--slab); color: var(--ink); border-top: 6px solid var(--steel); }
+  dialog::backdrop { background: rgba(20, 28, 30, .45); }
+  dialog form { padding: 24px 24px 20px; }
+  dialog h3 { margin: 0 0 6px; font-size: 1.125rem; }
+  dialog .desc { color: var(--muted); font-size: .9rem; margin: 0 0 16px; }
+  dialog .field select, dialog .field input, dialog .field textarea {
+    width: 100%; padding: 9px 11px; background: var(--concrete); border: 1px solid var(--rule); border-radius: 2px; color: var(--ink);
+  }
+  dialog .hint { color: var(--muted); font-size: .8rem; margin-top: 4px; }
+  dialog .buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+  dialog .buttons .cancel { background: none; border: 1px solid var(--rule); padding: 7px 16px; border-radius: 2px; cursor: pointer; }
+  dialog.danger { border-top-color: var(--loss); }
+  dialog.danger .btn-solid { background: var(--loss); border-color: var(--loss); }
+  dialog ul.issues { margin: 0; padding-left: 1.2em; color: var(--loss); font-size: .9rem; }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    background: var(--ink); color: var(--concrete); padding: 10px 18px; border-radius: 2px; font-size: .95rem;
+    max-width: calc(100vw - 32px); z-index: 10;
+  }
+
   @media (max-width: 720px) {
     header.top, main, nav.tabs { padding-left: 16px; padding-right: 16px; }
     .ledger { grid-template-columns: 1fr; padding: 24px 20px; }
@@ -235,6 +264,7 @@
     <button role="tab" data-tab="inventory">進銷存</button>
     <button role="tab" data-tab="ar">應收</button>
     <button role="tab" data-tab="ap">應付</button>
+    <button role="tab" data-tab="settings" class="ops">收付款條件</button>
   </nav>
   <main>
     <p class="note" id="loading" hidden>讀取中…</p>
@@ -285,6 +315,7 @@
         <label>月份 <select id="i-month"></select></label>
         <label><input type="search" id="i-filter" placeholder="篩選品項"></label>
         <span class="spacer"></span>
+        <button type="button" class="btn-solid ops" id="i-close" hidden>結帳這個月份</button>
         <button type="button" class="btn-line" id="i-export">匯出 Excel</button>
       </div>
       <p class="status-line" id="i-status"></p>
@@ -302,6 +333,10 @@
 
     <!-- 應收 -->
     <div class="page" data-page="ar" hidden>
+      <div class="toolbar opsbar ops flex">
+        <button type="button" class="btn-solid" id="ar-receive">登錄收款</button>
+        <button type="button" class="btn-line" id="ar-generate">產生發票</button>
+      </div>
       <div class="subhead"><h2>客戶應收總覽</h2><button type="button" class="btn-line" data-export="ar-summary">匯出 Excel</button></div>
       <div class="grid-wrap" id="ar-summary"></div>
       <div class="subhead"><h2>發票</h2>
@@ -315,10 +350,16 @@
       <div class="grid-wrap" id="ar-invoices"></div>
       <div class="subhead"><h2>待開發票（未稅）</h2><button type="button" class="btn-line" data-export="ar-uninvoiced">匯出 Excel</button></div>
       <div class="grid-wrap" id="ar-uninvoiced"></div>
+      <div class="subhead"><h2>收款紀錄</h2><button type="button" class="btn-line" data-export="ar-receipts">匯出 Excel</button></div>
+      <div class="grid-wrap" id="ar-receipts"></div>
     </div>
 
     <!-- 應付 -->
     <div class="page" data-page="ap" hidden>
+      <div class="toolbar opsbar ops flex">
+        <button type="button" class="btn-solid" id="ap-pay">登錄付款</button>
+        <button type="button" class="btn-line" id="ap-generate">產生請款單</button>
+      </div>
       <div class="subhead"><h2>供應商應付總覽</h2><button type="button" class="btn-line" data-export="ap-summary">匯出 Excel</button></div>
       <div class="grid-wrap" id="ap-summary"></div>
       <div class="subhead"><h2>請款單</h2>
@@ -332,9 +373,23 @@
       <div class="grid-wrap" id="ap-bills"></div>
       <div class="subhead"><h2>待彙總請款（未稅）</h2><button type="button" class="btn-line" data-export="ap-unbilled">匯出 Excel</button></div>
       <div class="grid-wrap" id="ap-unbilled"></div>
+      <div class="subhead"><h2>付款紀錄</h2><button type="button" class="btn-line" data-export="ap-payments">匯出 Excel</button></div>
+      <div class="grid-wrap" id="ap-payments"></div>
+    </div>
+
+    <!-- 收付款條件 -->
+    <div class="page" data-page="settings" hidden>
+      <p class="status-line" style="margin-top:24px">到期日 ＝ 結帳日 ＋ 到期月數 ＋ 到期天數。「月結 30 天」請設為到期月數 1、到期天數 0。結帳日 0 代表月底。</p>
+      <div class="subhead"><h2>客戶</h2></div>
+      <div class="grid-wrap" id="st-customers"></div>
+      <div class="subhead"><h2>供應商</h2></div>
+      <div class="grid-wrap" id="st-vendors"></div>
     </div>
   </main>
 </div>
+
+<dialog id="dlg"><form method="dialog" id="dlg-form" novalidate></form></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
 <script>
 const CFG = window.REPORT_CONFIG || {};
 const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
@@ -380,19 +435,22 @@ function table(cols, rows, opts = {}) {
       case 'cost': return `<td class="r num">${fmtCost(v)}</td>`;
       case 'pct':  return `<td class="r num">${v == null ? '—' : v + '%'}</td>`;
       case 'tag':  return `<td>${c.tag(v, r)}</td>`;
+      case 'act':  return `<td class="ops">${c.btns(r)}</td>`;
       default:     return `<td>${esc(c.f ? c.f(v, r) : v) || (c.dash ? '—' : '')}</td>`;
     }
   };
   const hasSum = cols.some((c) => c.sum);
   const foot = hasSum ? `<tfoot><tr>${cols.map((c, i) => {
+    if (c.t === 'act') return '<td class="ops"></td>';
     if (c.sum) { const s = rows.reduce((a, r) => a + (Number(r[c.k]) || 0), 0); return `<td class="r num">${c.t === 'qty' ? fmtQty(s) : fmt(s)}</td>`; }
     return i === 0 ? `<td>合計 ${rows.length} 筆</td>` : '<td></td>';
   }).join('')}</tr></tfoot>` : '';
-  return `<table><thead><tr>${cols.map((c) => `<th class="${['amt', 'qty', 'cost', 'pct'].includes(c.t) ? 'r' : ''}">${esc(c.l || c.k)}</th>`).join('')}</tr></thead>
+  return `<table><thead><tr>${cols.map((c) => `<th class="${['amt', 'qty', 'cost', 'pct'].includes(c.t) ? 'r' : ''}${c.t === 'act' ? ' ops' : ''}">${esc(c.l || c.k)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r, i) => `<tr${opts.click ? ` class="clickable" data-i="${i}" tabindex="0"` : ''}>${cols.map((c) => cell(c, r)).join('')}</tr>`).join('')}</tbody>${foot}</table>`;
 }
 
 function exportXlsx(filename, cols, rows) {
+  cols = cols.filter((c) => c.t !== 'act');
   const data = rows.map((r) => Object.fromEntries(cols.map((c) => {
     let v = r[c.k];
     if (['amt', 'qty', 'cost'].includes(c.t) && v !== null && v !== '' && v !== undefined) v = Number(v);
@@ -402,6 +460,60 @@ function exportXlsx(filename, cols, rows) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '報表');
   XLSX.writeFile(wb, `${filename}.xlsx`);
+}
+
+/* ---------- 對話框與提示 ----------
+   form(title, fields, opts) → Promise<values | null>
+   欄位：{ name, label, type: text|number|date|select|textarea, value, options:[[value,label]], hint, required } */
+function form(title, fields, opts = {}) {
+  const dlg = $('dlg'), f = $('dlg-form');
+  dlg.className = opts.danger ? 'danger' : '';
+  f.innerHTML = `<h3>${esc(title)}</h3>${opts.desc ? `<p class="desc">${opts.desc}</p>` : ''}
+    ${fields.map((x) => `<label class="field"><span>${esc(x.label)}</span>${
+      x.type === 'select' ? `<select name="${x.name}">${x.options.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(x.value ?? '') ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`
+      : x.type === 'textarea' ? `<textarea name="${x.name}" rows="2">${esc(x.value ?? '')}</textarea>`
+      : `<input name="${x.name}" type="${x.type || 'text'}" value="${esc(x.value ?? '')}"${x.type === 'number' ? ' step="any" inputmode="decimal"' : ''}>`
+    }${x.hint ? `<div class="hint">${x.hint}</div>` : ''}</label>`).join('')}
+    <p class="error" id="dlg-error"></p>
+    <div class="buttons"><button type="button" class="cancel">取消</button>
+      <button type="submit" class="btn-solid">${esc(opts.ok || '確認')}</button></div>`;
+  return new Promise((resolve) => {
+    const done = (v) => { dlg.close(); resolve(v); };
+    f.querySelector('.cancel').onclick = () => done(null);
+    dlg.oncancel = () => resolve(null);
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const v = Object.fromEntries(new FormData(f).entries());
+      const miss = fields.find((x) => x.required && !String(v[x.name] ?? '').trim());
+      if (miss) { $('dlg-error').textContent = `請填寫「${miss.label}」`; return; }
+      done(fields.length ? v : true);
+    };
+    dlg.showModal();
+    const first = f.querySelector('input, select, textarea'); if (first) first.focus();
+  });
+}
+function confirmBox(title, desc, okText, danger = true) { return form(title, [], { desc, ok: okText, danger }); }
+let toastTimer;
+function toast(msg) {
+  const el = $('toast'); el.textContent = msg; el.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+const todayTW = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+
+// 執行寫入動作：成功顯示訊息並重新載入相關頁籤；其他頁籤標記為需重新讀取
+async function write(action, params, reloadTabs) {
+  $('app-error').textContent = '';
+  try {
+    const r = await api(action, params);
+    toast(r.message);
+    for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    return true;
+  } catch (err) {
+    toast(err.message);
+    $('app-error').textContent = err.message;
+    return false;
+  }
 }
 
 const tagCost = (v) => v === '本月預估' ? '<span class="tag est">本月預估</span>'
@@ -414,12 +526,12 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'ar', 'ap'];
-function currentTab() { const h = location.hash.replace('#', ''); return TABS.includes(h) ? h : 'overview'; }
+const TABS = ['overview', 'margin', 'inventory', 'ar', 'ap', 'settings'];
+function currentTab() { const h = location.hash.replace('#', ''); return TABS.includes(h) && (h !== 'settings' || S.me?.canWrite) ? h : 'overview'; }
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, ar: loadAr, ap: loadAp })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -583,6 +695,7 @@ function iRows() {
 function renderInventory() {
   const rows = iRows();
   $('i-table').innerHTML = table(I_COLS, rows, { click: true, empty: '這個月份沒有庫存資料。' });
+  $('i-close').hidden = !(S.inv?.status !== 'closed' && $('i-month').value === S.meta.openPeriod);
   $('i-status').textContent = S.inv?.status === 'closed'
     ? '已結帳：數字為結帳時的快照，不再變動。點選品項可查看存貨明細帳。'
     : '未結帳：依目前的進出即時計算，平均單價與銷貨成本會隨本月進貨變動。點選品項可查看存貨明細帳。';
@@ -617,6 +730,25 @@ function loadLedger() {
   });
 }
 $('i-month').addEventListener('change', loadInventory);
+$('i-close').addEventListener('click', async () => {
+  const month = $('i-month').value;
+  let chk;
+  try { chk = await api('close_check', { month }); } catch (err) { toast(err.message); return; }
+  if (!chk.canClose) {
+    await form(`${monthLabel(month)}還不能結帳`, [], {
+      desc: `請先處理以下項目：<ul class="issues">${chk.issues.map((i) => `<li>${esc(i.issue)}：${esc(i.detail)}</li>`).join('')}</ul>`, ok: '知道了',
+    });
+    return;
+  }
+  const ok = await confirmBox(`結帳 ${monthLabel(month)}？`,
+    '檢查全部通過。結帳後這個月份的進銷存與銷貨成本會固定，之後日期落在這個月的異動會自動記到下個月。結帳後不能在畫面上取消。', '結帳', true);
+  if (!ok) return;
+  if (await write('close_period', { month }, ['inventory'])) {
+    S.meta = await api('meta');
+    $('i-month').innerHTML = ''; $('m-month').innerHTML = '';
+    fillMonths($('i-month')); $('i-month').value = month; loadInventory();
+  }
+});
 $('i-filter').addEventListener('input', renderInventory);
 $('i-ledger-go').addEventListener('click', loadLedger);
 $('i-export').addEventListener('click', () => exportXlsx(`進銷存月報_${$('i-month').value}`, I_COLS, iRows()));
@@ -637,6 +769,12 @@ const AR_COLS = {
     { k: '未稅金額', t: 'amt', sum: true }, { k: '稅額', t: 'amt', sum: true }, { k: '含稅金額', t: 'amt', sum: true },
     { k: '已收金額', t: 'amt', sum: true }, { k: '未收餘額', t: 'amt', sum: true },
     { k: '到期日' }, { k: '狀態', t: 'tag', tag: tagPay }, { k: '帳齡', t: 'tag', tag: tagAge },
+    { k: '_act', l: '操作', t: 'act', btns: (r) => `<button type="button" class="act" data-act="inv-no" data-key="${esc(r['草稿編號'])}">發票號碼</button>${Number(r['已收金額']) === 0 || r['類型'] === '現金' ? `<button type="button" class="act danger" data-act="inv-void" data-key="${esc(r['草稿編號'])}">作廢</button>` : ''}` },
+  ],
+  'ar-receipts': [
+    { k: '收款日' }, { k: '客戶名稱', l: '客戶' }, { k: '收款金額', t: 'amt', sum: true }, { k: '已沖銷', t: 'amt', sum: true },
+    { k: '未沖銷', t: 'amt', sum: true }, { k: '沖銷發票', dash: true }, { k: '方式', dash: true }, { k: '備註', dash: true },
+    { k: '_act', l: '操作', t: 'act', btns: (r) => `<button type="button" class="act danger" data-act="rcpt-del" data-key="${esc(r.receipt_id)}">刪除</button>` },
   ],
   'ar-uninvoiced': [
     { k: '客戶代號' }, { k: '客戶名稱', l: '客戶' }, { k: '單號' }, { k: '類型' }, { k: '認列月份' },
@@ -647,11 +785,12 @@ function arData(key) {
   if (!S.ar) return [];
   if (key === 'ar-summary') return S.ar.summary;
   if (key === 'ar-uninvoiced') return S.ar.uninvoiced;
+  if (key === 'ar-receipts') return S.ar.receipts;
   return S.arStatus === 'open' ? S.ar.invoices.filter((r) => Number(r['未收餘額']) > 0) : S.ar.invoices;
 }
 function renderAr() {
   for (const k of Object.keys(AR_COLS)) $(k).innerHTML = table(AR_COLS[k], arData(k),
-    { empty: { 'ar-summary': '目前沒有應收帳款。', 'ar-invoices': '沒有符合條件的發票。', 'ar-uninvoiced': '目前沒有待開發票的應收。' }[k] });
+    { empty: { 'ar-summary': '目前沒有應收帳款。', 'ar-invoices': '沒有符合條件的發票。', 'ar-uninvoiced': '目前沒有待開發票的應收。', 'ar-receipts': '還沒有收款紀錄。' }[k] });
 }
 function loadAr() { return load(async () => { S.ar = await api('ar'); renderAr(); }); }
 $('ar-status').addEventListener('click', (e) => {
@@ -675,6 +814,12 @@ const AP_COLS = {
     { k: '未稅金額', t: 'amt', sum: true }, { k: '稅額', t: 'amt', sum: true }, { k: '含稅金額', t: 'amt', sum: true },
     { k: '已付金額', t: 'amt', sum: true }, { k: '未付餘額', t: 'amt', sum: true },
     { k: '到期日' }, { k: '狀態', t: 'tag', tag: tagPay }, { k: '帳齡', t: 'tag', tag: tagAge },
+    { k: '_act', l: '操作', t: 'act', btns: (r) => `<button type="button" class="act" data-act="bill-no" data-key="${esc(r['草稿編號'])}">廠商發票號碼</button>${Number(r['已付金額']) === 0 ? `<button type="button" class="act danger" data-act="bill-void" data-key="${esc(r['草稿編號'])}">作廢</button>` : ''}` },
+  ],
+  'ap-payments': [
+    { k: '付款日' }, { k: '供應商名稱', l: '供應商' }, { k: '付款金額', t: 'amt', sum: true }, { k: '已沖銷', t: 'amt', sum: true },
+    { k: '未沖銷', t: 'amt', sum: true }, { k: '沖銷請款單', dash: true }, { k: '方式', dash: true }, { k: '備註', dash: true },
+    { k: '_act', l: '操作', t: 'act', btns: (r) => `<button type="button" class="act danger" data-act="pay-del" data-key="${esc(r.payment_id)}">刪除</button>` },
   ],
   'ap-unbilled': [
     { k: '供應商代號' }, { k: '供應商名稱', l: '供應商' }, { k: '單號' }, { k: '類型' }, { k: '認列日' },
@@ -685,11 +830,12 @@ function apData(key) {
   if (!S.ap) return [];
   if (key === 'ap-summary') return S.ap.summary;
   if (key === 'ap-unbilled') return S.ap.unbilled;
+  if (key === 'ap-payments') return S.ap.payments;
   return S.apStatus === 'open' ? S.ap.bills.filter((r) => Number(r['未付餘額']) > 0) : S.ap.bills;
 }
 function renderAp() {
   for (const k of Object.keys(AP_COLS)) $(k).innerHTML = table(AP_COLS[k], apData(k),
-    { empty: { 'ap-summary': '目前沒有應付帳款。', 'ap-bills': '沒有符合條件的請款單。', 'ap-unbilled': '目前沒有待彙總的應付。' }[k] });
+    { empty: { 'ap-summary': '目前沒有應付帳款。', 'ap-bills': '沒有符合條件的請款單。', 'ap-unbilled': '目前沒有待彙總的應付。', 'ap-payments': '還沒有付款紀錄。' }[k] });
 }
 function loadAp() { return load(async () => { S.ap = await api('ap'); renderAp(); }); }
 $('ap-status').addEventListener('click', (e) => {
@@ -701,11 +847,123 @@ $('ap-status').addEventListener('click', (e) => {
 
 document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => {
   const k = b.dataset.export, today = new Date().toISOString().slice(0, 10);
-  const names = { 'ar-summary': '客戶應收總覽', 'ar-invoices': '發票', 'ar-uninvoiced': '待開發票', 'ap-summary': '供應商應付總覽', 'ap-bills': '請款單', 'ap-unbilled': '待彙總請款' };
+  const names = { 'ar-summary': '客戶應收總覽', 'ar-invoices': '發票', 'ar-uninvoiced': '待開發票', 'ar-receipts': '收款紀錄', 'ap-summary': '供應商應付總覽', 'ap-bills': '請款單', 'ap-unbilled': '待彙總請款', 'ap-payments': '付款紀錄' };
   const cols = AR_COLS[k] || AP_COLS[k];
   const rows = k.startsWith('ar') ? arData(k) : apData(k);
   exportXlsx(`${names[k]}_${today}`, cols, rows);
 }));
+
+/* ---------- 會計操作：應收 ---------- */
+const METHODS = [['匯款', '匯款'], ['支票', '支票'], ['現金', '現金'], ['其他', '其他']];
+const custOpts = () => S.meta.customers.map((c) => [c.customer_code, `${c.customer_code} ${c.customer_name}`]);
+const vendOpts = () => S.meta.vendors.map((v) => [v.vendor_code, `${v.vendor_code} ${v.vendor_name}`]);
+
+$('ar-receive').addEventListener('click', async () => {
+  const v = await form('登錄收款', [
+    { name: 'customerCode', label: '客戶', type: 'select', options: custOpts(), required: true },
+    { name: 'date', label: '收款日', type: 'date', value: todayTW(), required: true },
+    { name: 'amount', label: '收款金額（含稅）', type: 'number', required: true, hint: '系統會依到期日先後自動沖銷發票，多收的部分保留為未沖銷餘額。' },
+    { name: 'method', label: '方式', type: 'select', options: METHODS },
+    { name: 'note', label: '備註', type: 'textarea' },
+  ], { ok: '登錄收款' });
+  if (v) await write('ar_receipt', v, ['ar']);
+});
+$('ar-generate').addEventListener('click', async () => {
+  const v = await form('產生發票', [
+    { name: 'billDate', label: '結帳日', type: 'date', value: todayTW(), required: true,
+      hint: '只會開立結帳日剛好是這一天的客戶，以及尚未開立的自取現金發票。' },
+    { name: 'customerCode', label: '只開這位客戶（選填）', type: 'select', options: [['', '依結帳日，不指定'], ...custOpts()],
+      hint: '指定客戶時不論結帳日，用於臨時請款或補開。' },
+  ], { ok: '產生發票' });
+  if (v) await write('invoice_generate', v, ['ar']);
+});
+$('ar-invoices').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const key = b.dataset.key;
+  const row = S.ar.invoices.find((r) => r['草稿編號'] === key);
+  if (b.dataset.act === 'inv-no') {
+    const v = await form('填入統一發票號碼', [
+      { name: 'invoiceNo', label: '發票號碼', value: row?.['發票號碼'] || '', hint: '兩個英文字母加八位數字，例如 AB12345678。清空後儲存可移除。' },
+    ], { desc: `${esc(key)}　${esc(row?.['客戶名稱'])}　含稅 ${fmt(row?.['含稅金額'])}`, ok: '儲存' });
+    if (v) await write('invoice_set_no', { draftNo: key, invoiceNo: v.invoiceNo }, ['ar']);
+  } else if (b.dataset.act === 'inv-void') {
+    const ok = await confirmBox('作廢這張發票？', `${esc(key)}　${esc(row?.['客戶名稱'])}　含稅 ${fmt(row?.['含稅金額'])}<br>作廢後，原本的應收會回到「待開發票」，可以重新產生。`, '作廢');
+    if (ok) await write('invoice_void', { draftNo: key }, ['ar']);
+  }
+});
+$('ar-receipts').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act="rcpt-del"]'); if (!b) return;
+  const row = S.ar.receipts.find((r) => r.receipt_id === b.dataset.key);
+  const ok = await confirmBox('刪除這筆收款？', `${esc(row?.['收款日'])}　${esc(row?.['客戶名稱'])}　${fmt(row?.['收款金額'])} 元<br>已沖銷的發票會恢復為未收。用於修正登錄錯誤。`, '刪除');
+  if (ok) await write('ar_receipt_delete', { receiptId: b.dataset.key }, ['ar']);
+});
+
+/* ---------- 會計操作：應付 ---------- */
+$('ap-pay').addEventListener('click', async () => {
+  const v = await form('登錄付款', [
+    { name: 'vendorCode', label: '供應商', type: 'select', options: vendOpts(), required: true },
+    { name: 'date', label: '付款日', type: 'date', value: todayTW(), required: true },
+    { name: 'amount', label: '付款金額（含稅）', type: 'number', required: true, hint: '系統會依到期日先後自動沖銷請款單。' },
+    { name: 'method', label: '方式', type: 'select', options: METHODS },
+    { name: 'note', label: '備註', type: 'textarea' },
+  ], { ok: '登錄付款' });
+  if (v) await write('ap_payment', v, ['ap']);
+});
+$('ap-generate').addEventListener('click', async () => {
+  const v = await form('產生請款單', [
+    { name: 'billDate', label: '結帳日', type: 'date', value: todayTW(), required: true, hint: '只會彙總結帳日剛好是這一天的供應商。' },
+    { name: 'vendorCode', label: '只開這家供應商（選填）', type: 'select', options: [['', '依結帳日，不指定'], ...vendOpts()] },
+  ], { ok: '產生請款單' });
+  if (v) await write('bill_generate', v, ['ap']);
+});
+$('ap-bills').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const key = b.dataset.key;
+  const row = S.ap.bills.find((r) => r['草稿編號'] === key);
+  if (b.dataset.act === 'bill-no') {
+    const v = await form('填入廠商發票號碼', [
+      { name: 'invoiceNo', label: '廠商發票號碼', value: row?.['廠商發票號碼'] || '', hint: '兩個英文字母加八位數字，例如 AB12345678。' },
+    ], { desc: `${esc(key)}　${esc(row?.['供應商名稱'])}　含稅 ${fmt(row?.['含稅金額'])}`, ok: '儲存' });
+    if (v) await write('bill_set_no', { draftNo: key, invoiceNo: v.invoiceNo }, ['ap']);
+  } else if (b.dataset.act === 'bill-void') {
+    const ok = await confirmBox('作廢這張請款單？', `${esc(key)}　${esc(row?.['供應商名稱'])}　含稅 ${fmt(row?.['含稅金額'])}<br>作廢後，原本的應付會回到「待彙總請款」。`, '作廢');
+    if (ok) await write('bill_void', { draftNo: key }, ['ap']);
+  }
+});
+$('ap-payments').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act="pay-del"]'); if (!b) return;
+  const row = S.ap.payments.find((r) => r.payment_id === b.dataset.key);
+  const ok = await confirmBox('刪除這筆付款？', `${esc(row?.['付款日'])}　${esc(row?.['供應商名稱'])}　${fmt(row?.['付款金額'])} 元<br>已沖銷的請款單會恢復為未付。`, '刪除');
+  if (ok) await write('ap_payment_delete', { paymentId: b.dataset.key }, ['ap']);
+});
+
+/* ---------- 收付款條件 ---------- */
+const dueText = (r) => `${Number(r.billing_day) ? r.billing_day + ' 日' : '月底'}結帳，${Number(r.due_months) ? r.due_months + ' 個月' : ''}${Number(r.due_days) ? r.due_days + ' 天' : ''}${!Number(r.due_months) && !Number(r.due_days) ? '當日' : '後'}到期`;
+function loadSettings() {
+  return load(async () => {
+    S.terms = await api('terms_list');
+    const edit = (kind) => (r) => `<button type="button" class="act" data-act="terms" data-kind="${kind}" data-key="${esc(kind === 'vendor' ? r.vendor_code : r.customer_code)}">修改</button>`;
+    $('st-customers').innerHTML = table([
+      { k: 'customer_code', l: '代號' }, { k: 'customer_name', l: '客戶' }, { k: 'payment_terms', l: '付款條件（訂單上）', dash: true },
+      { k: '_d', l: '收款規則', f: (_, r) => dueText(r) }, { k: '_act', l: '操作', t: 'act', btns: edit('customer') },
+    ], S.terms.customers);
+    $('st-vendors').innerHTML = table([
+      { k: 'vendor_code', l: '代號' }, { k: 'vendor_name', l: '供應商' },
+      { k: '_d', l: '付款規則', f: (_, r) => dueText(r) }, { k: '_act', l: '操作', t: 'act', btns: edit('vendor') },
+    ], S.terms.vendors);
+  });
+}
+$('app-view').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act="terms"]'); if (!b) return;
+  const kind = b.dataset.kind, code = b.dataset.key;
+  const r = (kind === 'vendor' ? S.terms.vendors : S.terms.customers).find((x) => (x.vendor_code || x.customer_code) === code);
+  const v = await form(`修改${kind === 'vendor' ? '付款' : '收款'}條件`, [
+    { name: 'billingDay', label: '結帳日（0＝月底）', type: 'number', value: r.billing_day ?? 0, required: true },
+    { name: 'dueMonths', label: '到期月數', type: 'number', value: r.due_months ?? 0, required: true, hint: '月結 30 天＝1、月結 60 天＝2' },
+    { name: 'dueDays', label: '到期天數', type: 'number', value: r.due_days ?? 0, required: true },
+  ], { desc: `${esc(code)}　${esc(r.vendor_name || r.customer_name)}`, ok: '儲存' });
+  if (v) await write('terms_update', { kind, code, ...v }, ['settings']);
+});
 
 /* ---------- 登入 ---------- */
 $('login-form').addEventListener('submit', async (e) => {
@@ -718,14 +976,15 @@ $('login-form').addEventListener('submit', async (e) => {
   if (error) { $('login-error').textContent = '電子郵件或密碼不正確'; return; }
   start();
 });
-$('logout-btn').addEventListener('click', async () => { await sb.auth.signOut(); S.loaded = {}; show('login'); });
+$('logout-btn').addEventListener('click', async () => { await sb.auth.signOut(); S.loaded = {}; S.me = null; document.body.classList.remove('can-write'); show('login'); });
 
 async function start() {
   show('app');
   await load(async () => {
     const [me, meta] = await Promise.all([api('me'), api('meta')]);
     $('who-name').textContent = me.displayName || me.email;
-    S.meta = meta;
+    S.me = me; S.meta = meta;
+    document.body.classList.toggle('can-write', !!me.canWrite);
     activate(currentTab());
   });
 }
