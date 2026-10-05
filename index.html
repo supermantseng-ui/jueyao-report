@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="config.js"></script>
 <style>
   /* ---------- 設定 ---------- */
   :root {
@@ -148,8 +150,50 @@
   .bar { display: inline-block; height: 8px; background: var(--steel); vertical-align: middle; margin-left: 8px; }
   .empty { padding: 28px 16px; color: var(--muted); }
 
+
+  /* ---------- 頁籤 ---------- */
+  nav.tabs { max-width: 1080px; margin: 0 auto; padding: 0 24px; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--rule); }
+  nav.tabs button {
+    background: none; border: 0; padding: 10px 14px 9px; cursor: pointer; white-space: nowrap;
+    color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px;
+  }
+  nav.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 700; border-bottom-color: var(--steel); }
+
+  /* ---------- 工具列 ---------- */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 24px 0 12px; }
+  .toolbar label { color: var(--muted); font-size: .9rem; display: flex; align-items: center; gap: 8px; }
+  .toolbar select, .toolbar input[type="search"], .toolbar input[type="date"] {
+    padding: 7px 10px; background: var(--slab); border: 1px solid var(--rule); border-radius: 2px; color: var(--ink);
+  }
+  .toolbar .spacer { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+  .seg button { background: var(--slab); border: 0; padding: 7px 14px; cursor: pointer; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--rule); }
+  .seg button[aria-pressed="true"] { background: var(--steel); color: #fff; }
+  .btn-line {
+    background: var(--slab); border: 1px solid var(--steel); color: var(--steel);
+    padding: 7px 14px; border-radius: 2px; cursor: pointer; font-weight: 500;
+  }
+  .status-line { color: var(--muted); font-size: .9rem; margin: 0 0 8px; }
+
+  /* ---------- 通用表格 ---------- */
+  .grid-wrap { overflow: auto; max-height: 70vh; background: var(--slab); }
+  .grid-wrap table thead th { position: sticky; top: 0; background: var(--slab); z-index: 1; box-shadow: inset 0 -1px 0 var(--rule); }
+  .grid-wrap tfoot td { font-weight: 700; border-top: 2px solid var(--ink); border-bottom: 0; position: sticky; bottom: 0; background: var(--slab); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td, tr.selected td { background: color-mix(in srgb, var(--steel) 9%, transparent); }
+  .tag { display: inline-block; padding: 0 8px; border-radius: 2px; font-size: .8rem; line-height: 1.7; }
+  .tag.est  { background: color-mix(in srgb, var(--safety) 25%, transparent); color: var(--ink); }
+  .tag.bad  { background: color-mix(in srgb, var(--loss) 15%, transparent); color: var(--loss); }
+  .tag.good { background: color-mix(in srgb, var(--gain) 15%, transparent); color: var(--gain); }
+  .tag.plain{ background: var(--concrete); color: var(--muted); }
+  td.neg { color: var(--loss); }
+  .subhead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 32px 0 12px; }
+  .subhead h2 { margin: 0; }
+  .ledger-panel { margin-top: 28px; }
+
   @media (max-width: 720px) {
-    header.top, main { padding-left: 16px; padding-right: 16px; }
+    header.top, main, nav.tabs { padding-left: 16px; padding-right: 16px; }
     .ledger { grid-template-columns: 1fr; padding: 24px 20px; }
     .rate { text-align: left; padding-bottom: 0; }
     .position { grid-template-columns: 1fr; }
@@ -185,12 +229,21 @@
     <h1>經營報表</h1>
     <div class="who"><span id="who-name"></span><button type="button" id="logout-btn">登出</button></div>
   </header>
+  <nav class="tabs" role="tablist" aria-label="報表">
+    <button role="tab" data-tab="overview">總覽</button>
+    <button role="tab" data-tab="margin">毛利明細</button>
+    <button role="tab" data-tab="inventory">進銷存</button>
+    <button role="tab" data-tab="ar">應收</button>
+    <button role="tab" data-tab="ap">應付</button>
+  </nav>
   <main>
-    <p class="note" id="loading">讀取中…</p>
+    <p class="note" id="loading" hidden>讀取中…</p>
     <p class="error" id="app-error" role="alert"></p>
-    <div id="content" hidden>
-      <div class="ledger" id="ledger"></div>
 
+    <!-- 總覽 -->
+    <div class="page" data-page="overview" hidden>
+      <div style="height:16px"></div>
+      <div class="ledger" id="ledger"></div>
       <section>
         <h2>近 12 個月營收與毛利</h2>
         <div class="chart-wrap">
@@ -198,35 +251,103 @@
           <div id="chart"></div>
         </div>
       </section>
-
       <section>
         <h2>資金位置</h2>
         <div class="position" id="position"></div>
         <p class="note">應收、應付的「已開發票／已請款」為含稅金額；「待開」為未稅金額，開立時另加 5% 營業稅。</p>
       </section>
-
       <section>
         <h2>本月客戶毛利排行</h2>
         <div class="table-wrap" id="customers"></div>
       </section>
     </div>
+
+    <!-- 毛利明細 -->
+    <div class="page" data-page="margin" hidden>
+      <div class="toolbar">
+        <label>月份 <select id="m-month"></select></label>
+        <div class="seg" id="m-view">
+          <button type="button" data-v="lines" aria-pressed="true">逐筆</button>
+          <button type="button" data-v="customer" aria-pressed="false">依客戶</button>
+          <button type="button" data-v="item" aria-pressed="false">依品項</button>
+        </div>
+        <label><input type="search" id="m-filter" placeholder="篩選客戶、建案或品項"></label>
+        <span class="spacer"></span>
+        <button type="button" class="btn-line" id="m-export">匯出 Excel</button>
+      </div>
+      <p class="status-line" id="m-status"></p>
+      <div class="grid-wrap" id="m-table"></div>
+    </div>
+
+    <!-- 進銷存 -->
+    <div class="page" data-page="inventory" hidden>
+      <div class="toolbar">
+        <label>月份 <select id="i-month"></select></label>
+        <label><input type="search" id="i-filter" placeholder="篩選品項"></label>
+        <span class="spacer"></span>
+        <button type="button" class="btn-line" id="i-export">匯出 Excel</button>
+      </div>
+      <p class="status-line" id="i-status"></p>
+      <div class="grid-wrap" id="i-table"></div>
+      <div class="ledger-panel" id="i-ledger" hidden>
+        <div class="subhead"><h2 id="i-ledger-title"></h2>
+          <button type="button" class="btn-line" id="i-ledger-export">匯出 Excel</button></div>
+        <div class="toolbar" style="margin-top:0">
+          <label>期間 <input type="date" id="i-from"> 至 <input type="date" id="i-to"></label>
+          <button type="button" class="btn-line" id="i-ledger-go">查詢</button>
+        </div>
+        <div class="grid-wrap" id="i-ledger-table"></div>
+      </div>
+    </div>
+
+    <!-- 應收 -->
+    <div class="page" data-page="ar" hidden>
+      <div class="subhead"><h2>客戶應收總覽</h2><button type="button" class="btn-line" data-export="ar-summary">匯出 Excel</button></div>
+      <div class="grid-wrap" id="ar-summary"></div>
+      <div class="subhead"><h2>發票</h2>
+        <div class="toolbar" style="margin:0">
+          <div class="seg" id="ar-status">
+            <button type="button" data-v="open" aria-pressed="true">未收清</button>
+            <button type="button" data-v="all" aria-pressed="false">全部</button>
+          </div>
+          <button type="button" class="btn-line" data-export="ar-invoices">匯出 Excel</button>
+        </div></div>
+      <div class="grid-wrap" id="ar-invoices"></div>
+      <div class="subhead"><h2>待開發票（未稅）</h2><button type="button" class="btn-line" data-export="ar-uninvoiced">匯出 Excel</button></div>
+      <div class="grid-wrap" id="ar-uninvoiced"></div>
+    </div>
+
+    <!-- 應付 -->
+    <div class="page" data-page="ap" hidden>
+      <div class="subhead"><h2>供應商應付總覽</h2><button type="button" class="btn-line" data-export="ap-summary">匯出 Excel</button></div>
+      <div class="grid-wrap" id="ap-summary"></div>
+      <div class="subhead"><h2>請款單</h2>
+        <div class="toolbar" style="margin:0">
+          <div class="seg" id="ap-status">
+            <button type="button" data-v="open" aria-pressed="true">未付清</button>
+            <button type="button" data-v="all" aria-pressed="false">全部</button>
+          </div>
+          <button type="button" class="btn-line" data-export="ap-bills">匯出 Excel</button>
+        </div></div>
+      <div class="grid-wrap" id="ap-bills"></div>
+      <div class="subhead"><h2>待彙總請款（未稅）</h2><button type="button" class="btn-line" data-export="ap-unbilled">匯出 Excel</button></div>
+      <div class="grid-wrap" id="ap-unbilled"></div>
+    </div>
   </main>
 </div>
-
 <script>
-/* ===== 設定：換成你的 Supabase 專案 ===== */
-const SUPABASE_URL = 'https://hnfpimshzwgerdcfhkob.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhuZnBpbXNoendnZXJkY2Zoa29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4MjY0NTYsImV4cCI6MjEwNTQwMjQ1Nn0.aQrLDHaWuGCtqVROlXOPL3x8P40spqDgXzdzCWfQdk8';
-/* ======================================= */
-
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const CFG = window.REPORT_CONFIG || {};
+const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('zh-TW');
+const fmtQty = (n) => (n == null || n === '') ? '' : Number(n).toLocaleString('zh-TW', { maximumFractionDigits: 2 });
+const fmtCost = (n) => (n == null || n === '') ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const monthLabel = (ym) => { const [y, m] = ym.split('-'); return `${y} 年 ${Number(m)} 月`; };
+const monthRange = (ym) => { const [y, m] = ym.split('-').map(Number); const last = new Date(y, m, 0).getDate(); return [`${ym}-01`, `${ym}-${String(last).padStart(2, '0')}`]; };
 
-async function api(action) {
-  const { data, error } = await sb.functions.invoke('report-api', { body: { action } });
+async function api(action, params = {}) {
+  const { data, error } = await sb.functions.invoke('report-api', { body: { action, ...params } });
   if (error) {
     let msg = '讀取資料失敗，請稍後再試';
     try { const body = await error.context.json(); if (body?.error) msg = body.error; } catch (_) {}
@@ -235,42 +356,84 @@ async function api(action) {
   return data;
 }
 
+async function load(fn) {
+  $('loading').hidden = false; $('app-error').textContent = '';
+  try { await fn(); } catch (err) { $('app-error').textContent = err.message; }
+  finally { $('loading').hidden = true; }
+}
+
 function show(view) {
   $('login-view').hidden = view !== 'login';
   $('app-view').hidden = view !== 'app';
 }
 
-/* ---------- 登入 ---------- */
-$('login-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = $('login-btn');
-  $('login-error').textContent = '';
-  btn.disabled = true; btn.textContent = '登入中…';
-  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
-  btn.disabled = false; btn.textContent = '登入';
-  if (error) { $('login-error').textContent = '電子郵件或密碼不正確'; return; }
-  start();
-});
+/* ---------- 通用表格 ----------
+   欄位型別：text、amt（金額，整數）、qty（數量）、cost（單價，兩位小數）、pct（%）、tag（標籤）
+   sum: true → 表尾合計 */
+function table(cols, rows, opts = {}) {
+  if (!rows.length) return `<p class="empty">${opts.empty || '沒有資料。'}</p>`;
+  const cell = (c, r) => {
+    const v = r[c.k];
+    switch (c.t) {
+      case 'amt':  return `<td class="r num${Number(v) < 0 ? ' neg' : ''}">${v == null || v === '' ? '' : fmt(v)}</td>`;
+      case 'qty':  return `<td class="r num${Number(v) < 0 ? ' neg' : ''}">${fmtQty(v)}</td>`;
+      case 'cost': return `<td class="r num">${fmtCost(v)}</td>`;
+      case 'pct':  return `<td class="r num">${v == null ? '—' : v + '%'}</td>`;
+      case 'tag':  return `<td>${c.tag(v, r)}</td>`;
+      default:     return `<td>${esc(c.f ? c.f(v, r) : v) || (c.dash ? '—' : '')}</td>`;
+    }
+  };
+  const hasSum = cols.some((c) => c.sum);
+  const foot = hasSum ? `<tfoot><tr>${cols.map((c, i) => {
+    if (c.sum) { const s = rows.reduce((a, r) => a + (Number(r[c.k]) || 0), 0); return `<td class="r num">${c.t === 'qty' ? fmtQty(s) : fmt(s)}</td>`; }
+    return i === 0 ? `<td>合計 ${rows.length} 筆</td>` : '<td></td>';
+  }).join('')}</tr></tfoot>` : '';
+  return `<table><thead><tr>${cols.map((c) => `<th class="${['amt', 'qty', 'cost', 'pct'].includes(c.t) ? 'r' : ''}">${esc(c.l || c.k)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r, i) => `<tr${opts.click ? ` class="clickable" data-i="${i}" tabindex="0"` : ''}>${cols.map((c) => cell(c, r)).join('')}</tr>`).join('')}</tbody>${foot}</table>`;
+}
 
-$('logout-btn').addEventListener('click', async () => {
-  await sb.auth.signOut();
-  show('login');
-});
+function exportXlsx(filename, cols, rows) {
+  const data = rows.map((r) => Object.fromEntries(cols.map((c) => {
+    let v = r[c.k];
+    if (['amt', 'qty', 'cost'].includes(c.t) && v !== null && v !== '' && v !== undefined) v = Number(v);
+    return [c.l || c.k, v ?? ''];
+  })));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '報表');
+  XLSX.writeFile(wb, `${filename}.xlsx`);
+}
 
-/* ---------- 報表 ---------- */
-async function start() {
-  show('app');
-  $('content').hidden = true; $('loading').hidden = false; $('app-error').textContent = '';
-  try {
-    const [me, d] = await Promise.all([api('me'), api('dashboard')]);
-    $('who-name').textContent = me.displayName || me.email;
+const tagCost = (v) => v === '本月預估' ? '<span class="tag est">本月預估</span>'
+  : v === '缺成本' ? '<span class="tag bad">缺成本</span>' : `<span class="tag plain">${esc(v)}</span>`;
+const PAY_TAG = { '已收': 'good', '已付': 'good', '部分收款': 'est', '部分付款': 'est' };
+const tagPay = (v) => `<span class="tag ${PAY_TAG[v] || 'plain'}">${esc(v)}</span>`;
+const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc(v)}</span>` : esc(v);
+
+/* ---------- 狀態 ---------- */
+const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
+
+/* ---------- 頁籤 ---------- */
+const TABS = ['overview', 'margin', 'inventory', 'ar', 'ap'];
+function currentTab() { const h = location.hash.replace('#', ''); return TABS.includes(h) ? h : 'overview'; }
+function activate(tab) {
+  document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, ar: loadAr, ap: loadAp })[tab](); }
+}
+document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
+window.addEventListener('hashchange', () => activate(currentTab()));
+
+function fillMonths(sel) {
+  sel.innerHTML = S.meta.months.map((m) => `<option value="${m}">${monthLabel(m)}${S.meta.closed.includes(m) ? '' : '（未結帳）'}</option>`).join('');
+}
+
+/* ---------- 總覽 ---------- */
+function loadOverview() {
+  return load(async () => {
+    const d = await api('dashboard');
     renderLedger(d); renderChart(d.trend); renderPosition(d); renderCustomers(d.topCustomers);
-    $('content').hidden = false;
-  } catch (err) {
-    $('app-error').textContent = err.message;
-  } finally {
-    $('loading').hidden = true;
-  }
+  });
 }
 
 function renderLedger(d) {
@@ -345,7 +508,228 @@ function renderCustomers(rows) {
       <td class="r num">${r['毛利率'] ?? '—'}%</td></tr>`).join('')}</tbody></table>`;
 }
 
-/* ---------- 啟動 ---------- */
+/* ---------- 毛利明細 ---------- */
+const M_COLS = {
+  lines: [
+    { k: '認列日' }, { k: '單號' }, { k: '類型' }, { k: '客戶名稱', l: '客戶' }, { k: '建案', dash: true },
+    { k: '商品代號' }, { k: '商品名稱' }, { k: '數量', t: 'qty' }, { k: '單價', t: 'cost' },
+    { k: '營收', t: 'amt', sum: true }, { k: '單位成本', t: 'cost' }, { k: '成本', t: 'amt', sum: true },
+    { k: '毛利', t: 'amt', sum: true }, { k: '成本狀態', t: 'tag', tag: tagCost },
+  ],
+  customer: [
+    { k: '客戶代號' }, { k: '客戶名稱', l: '客戶' }, { k: '建案', dash: true },
+    { k: '營收', t: 'amt', sum: true }, { k: '成本', t: 'amt', sum: true }, { k: '毛利', t: 'amt', sum: true }, { k: '毛利率', t: 'pct' },
+  ],
+  item: [
+    { k: '商品代號' }, { k: '商品名稱' }, { k: '單位' }, { k: '數量', t: 'qty', sum: true },
+    { k: '營收', t: 'amt', sum: true }, { k: '成本', t: 'amt', sum: true }, { k: '毛利', t: 'amt', sum: true }, { k: '毛利率', t: 'pct' },
+  ],
+};
+function mRows() {
+  if (!S.margin) return [];
+  const src = { lines: S.margin.lines, customer: S.margin.byCustomer, item: S.margin.byItem }[S.mView] || [];
+  const q = $('m-filter').value.trim().toLowerCase();
+  if (!q) return src;
+  return src.filter((r) => ['客戶名稱', '客戶代號', '建案', '商品代號', '商品名稱', '單號'].some((k) => String(r[k] ?? '').toLowerCase().includes(q)));
+}
+function renderMargin() {
+  const rows = mRows();
+  $('m-table').innerHTML = table(M_COLS[S.mView], rows, { empty: '這個月份沒有符合條件的已認列銷貨。' });
+  const est = (S.margin?.lines || []).some((r) => r['成本狀態'] === '本月預估');
+  const miss = (S.margin?.lines || []).filter((r) => r['成本狀態'] === '缺成本').length;
+  $('m-status').innerHTML = [
+    '金額為未稅。',
+    est ? '本月尚未結帳，自送與自取現金的成本為依目前進貨計算的預估值。' : '',
+    miss ? `<span style="color:var(--loss)">有 ${miss} 筆查不到成本。</span>` : '',
+  ].join('');
+}
+function loadMargin() {
+  if (!$('m-month').options.length) fillMonths($('m-month'));
+  return load(async () => { S.margin = await api('margin', { month: $('m-month').value }); renderMargin(); });
+}
+$('m-month').addEventListener('change', loadMargin);
+$('m-filter').addEventListener('input', renderMargin);
+$('m-view').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.mView = b.dataset.v;
+  $('m-view').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  renderMargin();
+});
+$('m-export').addEventListener('click', () => {
+  const name = { lines: '毛利明細', customer: '客戶毛利', item: '品項毛利' }[S.mView];
+  exportXlsx(`${name}_${$('m-month').value}`, M_COLS[S.mView], mRows());
+});
+
+/* ---------- 進銷存 ---------- */
+const I_COLS = [
+  { k: '商品代號' }, { k: '商品名稱' }, { k: '單位' },
+  { k: '期初數量', t: 'qty' }, { k: '期初金額', t: 'amt', sum: true },
+  { k: '進貨數量', t: 'qty' }, { k: '進貨金額', t: 'amt', sum: true },
+  { k: '出庫數量', t: 'qty' }, { k: '銷貨成本', t: 'amt', sum: true },
+  { k: '調整數量', t: 'qty' }, { k: '調整金額', t: 'amt', sum: true },
+  { k: '期末數量', t: 'qty' }, { k: '期末金額', t: 'amt', sum: true }, { k: '平均單價', t: 'cost' },
+];
+const L_COLS = [
+  { k: 'tx_date', l: '日期' }, { k: 'original_tx_date', l: '原始日期', f: (v) => v || '' },
+  { k: 'tx_type', l: '異動類型' }, { k: 'ref_doc', l: '單據', f: (v) => v || '' },
+  { k: 'in_qty', l: '入庫', t: 'qty' }, { k: 'out_qty', l: '出庫', t: 'qty' },
+  { k: 'unit_cost', l: '入庫成本', t: 'cost' }, { k: 'balance', l: '結存', t: 'qty' },
+];
+function iRows() {
+  const q = $('i-filter').value.trim().toLowerCase();
+  const rows = S.inv?.rows || [];
+  return q ? rows.filter((r) => `${r['商品代號']} ${r['商品名稱']}`.toLowerCase().includes(q)) : rows;
+}
+function renderInventory() {
+  const rows = iRows();
+  $('i-table').innerHTML = table(I_COLS, rows, { click: true, empty: '這個月份沒有庫存資料。' });
+  $('i-status').textContent = S.inv?.status === 'closed'
+    ? '已結帳：數字為結帳時的快照，不再變動。點選品項可查看存貨明細帳。'
+    : '未結帳：依目前的進出即時計算，平均單價與銷貨成本會隨本月進貨變動。點選品項可查看存貨明細帳。';
+  $('i-table').querySelectorAll('tr.clickable').forEach((tr) => {
+    const open = () => openLedger(rows[Number(tr.dataset.i)], tr);
+    tr.addEventListener('click', open);
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  });
+}
+function loadInventory() {
+  if (!$('i-month').options.length) fillMonths($('i-month'));
+  $('i-ledger').hidden = true;
+  return load(async () => { S.inv = await api('inventory', { month: $('i-month').value }); renderInventory(); });
+}
+function openLedger(row, tr) {
+  const item = S.meta.items.find((i) => i.item_code === row['商品代號']);
+  if (!item) return;
+  S.invItem = item;
+  $('i-table').querySelectorAll('tr.selected').forEach((x) => x.classList.remove('selected'));
+  tr.classList.add('selected');
+  const [from, to] = monthRange($('i-month').value);
+  $('i-from').value = from; $('i-to').value = to;
+  $('i-ledger-title').textContent = `存貨明細帳：${item.item_code} ${item.item_name}`;
+  $('i-ledger').hidden = false;
+  loadLedger().then(() => $('i-ledger').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }));
+}
+function loadLedger() {
+  return load(async () => {
+    const d = await api('item_ledger', { itemId: S.invItem.id, from: $('i-from').value, to: $('i-to').value });
+    S.ledgerRows = d.rows;
+    $('i-ledger-table').innerHTML = table(L_COLS, d.rows, { empty: '這段期間沒有異動。' });
+  });
+}
+$('i-month').addEventListener('change', loadInventory);
+$('i-filter').addEventListener('input', renderInventory);
+$('i-ledger-go').addEventListener('click', loadLedger);
+$('i-export').addEventListener('click', () => exportXlsx(`進銷存月報_${$('i-month').value}`, I_COLS, iRows()));
+$('i-ledger-export').addEventListener('click', () =>
+  exportXlsx(`存貨明細帳_${S.invItem.item_code}_${$('i-from').value}_${$('i-to').value}`, L_COLS, S.ledgerRows));
+
+/* ---------- 應收 ---------- */
+const AR_COLS = {
+  'ar-summary': [
+    { k: '客戶代號' }, { k: '客戶名稱', l: '客戶' },
+    { k: '待開發票未稅', t: 'amt', sum: true }, { k: '已開發票未收含稅', l: '已開發票未收', t: 'amt', sum: true },
+    { k: '逾期金額', t: 'amt', sum: true }, { k: '未到期', t: 'amt', sum: true },
+    { k: '逾期1至30天', l: '逾期 1–30 天', t: 'amt', sum: true }, { k: '逾期31至60天', l: '逾期 31–60 天', t: 'amt', sum: true },
+    { k: '逾期61天以上', l: '逾期 61 天以上', t: 'amt', sum: true },
+  ],
+  'ar-invoices': [
+    { k: '發票日' }, { k: '草稿編號' }, { k: '發票號碼', dash: true }, { k: '類型' }, { k: '客戶名稱', l: '客戶' },
+    { k: '未稅金額', t: 'amt', sum: true }, { k: '稅額', t: 'amt', sum: true }, { k: '含稅金額', t: 'amt', sum: true },
+    { k: '已收金額', t: 'amt', sum: true }, { k: '未收餘額', t: 'amt', sum: true },
+    { k: '到期日' }, { k: '狀態', t: 'tag', tag: tagPay }, { k: '帳齡', t: 'tag', tag: tagAge },
+  ],
+  'ar-uninvoiced': [
+    { k: '客戶代號' }, { k: '客戶名稱', l: '客戶' }, { k: '單號' }, { k: '類型' }, { k: '認列月份' },
+    { k: '未稅金額', t: 'amt', sum: true }, { k: '付款條件', dash: true }, { k: '結帳日' },
+  ],
+};
+function arData(key) {
+  if (!S.ar) return [];
+  if (key === 'ar-summary') return S.ar.summary;
+  if (key === 'ar-uninvoiced') return S.ar.uninvoiced;
+  return S.arStatus === 'open' ? S.ar.invoices.filter((r) => Number(r['未收餘額']) > 0) : S.ar.invoices;
+}
+function renderAr() {
+  for (const k of Object.keys(AR_COLS)) $(k).innerHTML = table(AR_COLS[k], arData(k),
+    { empty: { 'ar-summary': '目前沒有應收帳款。', 'ar-invoices': '沒有符合條件的發票。', 'ar-uninvoiced': '目前沒有待開發票的應收。' }[k] });
+}
+function loadAr() { return load(async () => { S.ar = await api('ar'); renderAr(); }); }
+$('ar-status').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.arStatus = b.dataset.v;
+  $('ar-status').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  renderAr();
+});
+
+/* ---------- 應付 ---------- */
+const AP_COLS = {
+  'ap-summary': [
+    { k: '供應商代號' }, { k: '供應商名稱', l: '供應商' },
+    { k: '待彙總未稅', t: 'amt', sum: true }, { k: '已請款未付含稅', l: '已請款未付', t: 'amt', sum: true },
+    { k: '逾期金額', t: 'amt', sum: true }, { k: '未到期', t: 'amt', sum: true },
+    { k: '逾期1至30天', l: '逾期 1–30 天', t: 'amt', sum: true }, { k: '逾期31至60天', l: '逾期 31–60 天', t: 'amt', sum: true },
+    { k: '逾期61天以上', l: '逾期 61 天以上', t: 'amt', sum: true },
+  ],
+  'ap-bills': [
+    { k: '結帳日' }, { k: '草稿編號' }, { k: '廠商發票號碼', dash: true }, { k: '供應商名稱', l: '供應商' },
+    { k: '未稅金額', t: 'amt', sum: true }, { k: '稅額', t: 'amt', sum: true }, { k: '含稅金額', t: 'amt', sum: true },
+    { k: '已付金額', t: 'amt', sum: true }, { k: '未付餘額', t: 'amt', sum: true },
+    { k: '到期日' }, { k: '狀態', t: 'tag', tag: tagPay }, { k: '帳齡', t: 'tag', tag: tagAge },
+  ],
+  'ap-unbilled': [
+    { k: '供應商代號' }, { k: '供應商名稱', l: '供應商' }, { k: '單號' }, { k: '類型' }, { k: '認列日' },
+    { k: '未稅金額', t: 'amt', sum: true }, { k: '結帳日' },
+  ],
+};
+function apData(key) {
+  if (!S.ap) return [];
+  if (key === 'ap-summary') return S.ap.summary;
+  if (key === 'ap-unbilled') return S.ap.unbilled;
+  return S.apStatus === 'open' ? S.ap.bills.filter((r) => Number(r['未付餘額']) > 0) : S.ap.bills;
+}
+function renderAp() {
+  for (const k of Object.keys(AP_COLS)) $(k).innerHTML = table(AP_COLS[k], apData(k),
+    { empty: { 'ap-summary': '目前沒有應付帳款。', 'ap-bills': '沒有符合條件的請款單。', 'ap-unbilled': '目前沒有待彙總的應付。' }[k] });
+}
+function loadAp() { return load(async () => { S.ap = await api('ap'); renderAp(); }); }
+$('ap-status').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.apStatus = b.dataset.v;
+  $('ap-status').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  renderAp();
+});
+
+document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => {
+  const k = b.dataset.export, today = new Date().toISOString().slice(0, 10);
+  const names = { 'ar-summary': '客戶應收總覽', 'ar-invoices': '發票', 'ar-uninvoiced': '待開發票', 'ap-summary': '供應商應付總覽', 'ap-bills': '請款單', 'ap-unbilled': '待彙總請款' };
+  const cols = AR_COLS[k] || AP_COLS[k];
+  const rows = k.startsWith('ar') ? arData(k) : apData(k);
+  exportXlsx(`${names[k]}_${today}`, cols, rows);
+}));
+
+/* ---------- 登入 ---------- */
+$('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('login-btn');
+  $('login-error').textContent = '';
+  btn.disabled = true; btn.textContent = '登入中…';
+  const { error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
+  btn.disabled = false; btn.textContent = '登入';
+  if (error) { $('login-error').textContent = '電子郵件或密碼不正確'; return; }
+  start();
+});
+$('logout-btn').addEventListener('click', async () => { await sb.auth.signOut(); S.loaded = {}; show('login'); });
+
+async function start() {
+  show('app');
+  await load(async () => {
+    const [me, meta] = await Promise.all([api('me'), api('meta')]);
+    $('who-name').textContent = me.displayName || me.email;
+    S.meta = meta;
+    activate(currentTab());
+  });
+}
+
 sb.auth.getSession().then(({ data }) => (data.session ? start() : show('login')));
 sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') show('login'); });
 </script>
