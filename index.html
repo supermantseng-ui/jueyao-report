@@ -264,7 +264,7 @@
     <button role="tab" data-tab="inventory">進銷存</button>
     <button role="tab" data-tab="ar">應收</button>
     <button role="tab" data-tab="ap">應付</button>
-    <button role="tab" data-tab="settings" class="ops">收付款條件</button>
+    <button role="tab" data-tab="settings">收付款條件</button>
   </nav>
   <main>
     <p class="note" id="loading" hidden>讀取中…</p>
@@ -527,7 +527,11 @@ const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, inv
 
 /* ---------- 頁籤 ---------- */
 const TABS = ['overview', 'margin', 'inventory', 'ar', 'ap', 'settings'];
-function currentTab() { const h = location.hash.replace('#', ''); return TABS.includes(h) && (h !== 'settings' || S.me?.canWrite) ? h : 'overview'; }
+// 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
+function currentTab() {
+  const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
+  return allowed.includes(h) ? h : (allowed[0] || 'overview');
+}
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
@@ -985,6 +989,7 @@ async function start() {
     $('who-name').textContent = me.displayName || me.email;
     S.me = me; S.meta = meta;
     document.body.classList.toggle('can-write', !!me.canWrite);
+    document.querySelectorAll('nav.tabs button').forEach((b) => { b.hidden = !(me.tabs || []).includes(b.dataset.tab); });
     activate(currentTab());
   });
 }
