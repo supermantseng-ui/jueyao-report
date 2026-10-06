@@ -192,6 +192,42 @@
   .subhead h2 { margin: 0; }
   .ledger-panel { margin-top: 28px; }
 
+  /* ---------- 叫貨 ---------- */
+  .o-card { background: var(--slab); padding: 20px; margin-top: 24px; }
+  .o-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
+  .o-grid .wide { grid-column: 1 / -1; }
+  .o-grid .span2 { grid-column: span 2; }
+  #o-type button { white-space: nowrap; padding: 8px 14px; }
+  @media (max-width: 520px) { .o-grid .span2 { grid-column: auto; } }
+  .o-card .field input, .o-card .field select, .o-card .field textarea {
+    width: 100%; padding: 9px 11px; background: var(--concrete); border: 1px solid var(--rule); border-radius: 2px; color: var(--ink);
+  }
+  .o-card .field input[readonly] { color: var(--muted); }
+  .o-hint { color: var(--muted); font-size: .85rem; margin: -8px 0 12px; min-height: 1.2em; }
+  .o-lines-head, .o-line { display: grid; grid-template-columns: minmax(0, 1fr) 96px 120px 110px 84px 36px; gap: 8px; align-items: center; }
+  .o-lines-head { color: var(--muted); font-size: .85rem; padding: 0 0 6px; border-bottom: 1px solid var(--rule); }
+  .o-line { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .o-line input { width: 100%; padding: 8px 10px; background: var(--concrete); border: 1px solid var(--rule); border-radius: 2px; color: var(--ink); }
+  .o-line input.num { text-align: right; font-family: var(--num); }
+  .o-line input[readonly] { background: transparent; border-color: transparent; color: var(--ink); }
+  .o-line .sub, .o-line .stk { text-align: right; font-family: var(--num); }
+  .o-line .stk.short { color: var(--loss); font-weight: 600; }
+  .o-line .meta { grid-column: 1 / -1; color: var(--muted); font-size: .8rem; margin-top: -4px; }
+  .o-line .del { background: none; border: 0; color: var(--loss); cursor: pointer; font-size: 1.1rem; }
+  .o-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+  .o-total { font-size: 1.1rem; }
+  .o-total b { font-family: var(--num); font-size: 1.6rem; margin-left: 8px; }
+  .o-result { margin-top: 16px; padding: 14px 16px; background: color-mix(in srgb, var(--gain) 12%, transparent); border-left: 4px solid var(--gain); }
+  .o-result.warn { background: color-mix(in srgb, var(--safety) 18%, transparent); border-left-color: var(--safety); }
+  .o-line .m-stk { display: none; }
+  @media (max-width: 720px) {
+    .o-lines-head { display: none; }
+    .o-line { grid-template-columns: 1fr 1fr 1fr 32px; }
+    .o-line .item { grid-column: 1 / -1; }
+    .o-line .stk { display: none; }
+    .o-line .m-stk { display: inline; }
+  }
+
   /* ---------- 會計操作 ---------- */
   .ops { display: none !important; }
   body.can-write .ops { display: revert !important; }
@@ -262,6 +298,7 @@
     <button role="tab" data-tab="overview">總覽</button>
     <button role="tab" data-tab="margin">毛利明細</button>
     <button role="tab" data-tab="inventory">進銷存</button>
+    <button role="tab" data-tab="order">叫貨</button>
     <button role="tab" data-tab="stock">庫存查詢</button>
     <button role="tab" data-tab="ar">應收</button>
     <button role="tab" data-tab="ap">應付</button>
@@ -329,6 +366,43 @@
           <button type="button" class="btn-line" id="i-ledger-go">查詢</button>
         </div>
         <div class="grid-wrap" id="i-ledger-table"></div>
+      </div>
+    </div>
+
+    <!-- 叫貨 -->
+    <div class="page" data-page="order" hidden>
+      <div class="o-card">
+        <div class="o-grid">
+          <label class="field"><span>客戶</span><input id="o-customer" list="o-cust-list" placeholder="輸入代號或名稱" autocomplete="off"></label>
+          <label class="field"><span>建案</span><input id="o-project" list="o-proj-list" placeholder="一般客戶可留空" autocomplete="off"></label>
+          <div class="field span2"><span>訂單類型</span>
+            <div class="seg" id="o-type">
+              <button type="button" data-v="代送" aria-pressed="true">代送</button>
+              <button type="button" data-v="自送" aria-pressed="false">自送</button>
+              <button type="button" data-v="自取現金" aria-pressed="false">自取現金</button>
+              <button type="button" data-v="採購" aria-pressed="false">採購</button>
+            </div></div>
+          <label class="field" id="o-vendor-wrap" hidden><span>供應商</span><select id="o-vendor"></select></label>
+          <label class="field"><span>叫貨日期</span><input type="date" id="o-date"></label>
+          <label class="field"><span>預計交期</span><input type="date" id="o-due"></label>
+          <label class="field"><span>聯絡人</span><input id="o-contact"></label>
+          <label class="field"><span>電話</span><input id="o-phone" inputmode="tel"></label>
+          <label class="field wide"><span>送貨地址</span><input id="o-address"></label>
+          <label class="field wide"><span>備註</span><input id="o-note"></label>
+        </div>
+        <p class="o-hint" id="o-hint"></p>
+        <datalist id="o-cust-list"></datalist><datalist id="o-proj-list"></datalist><datalist id="o-item-list"></datalist>
+      </div>
+
+      <div class="o-card">
+        <div class="o-lines-head"><span>商品</span><span style="text-align:right">數量</span><span style="text-align:right">單價</span><span style="text-align:right">小計</span><span style="text-align:right">庫存</span><span></span></div>
+        <div id="o-lines"></div>
+        <div class="o-foot">
+          <button type="button" class="btn-line" id="o-add">新增品項</button>
+          <div class="o-total">合計（未稅）<b id="o-total">0</b></div>
+          <button type="button" class="btn-solid" id="o-submit">送出叫貨</button>
+        </div>
+        <div id="o-result" hidden></div>
       </div>
     </div>
 
@@ -523,7 +597,7 @@ async function write(action, params, reloadTabs) {
     const r = await api(action, params);
     toast(r.message);
     for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
-    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
     return true;
   } catch (err) {
     toast(err.message);
@@ -542,7 +616,7 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'stock', 'ar', 'ap', 'settings'];
+const TABS = ['overview', 'margin', 'inventory', 'order', 'stock', 'ar', 'ap', 'settings'];
 // 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
 function currentTab() {
   const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
@@ -551,7 +625,7 @@ function currentTab() {
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -774,6 +848,170 @@ $('i-ledger-go').addEventListener('click', loadLedger);
 $('i-export').addEventListener('click', () => exportXlsx(`進銷存月報_${$('i-month').value}`, I_COLS, iRows()));
 $('i-ledger-export').addEventListener('click', () =>
   exportXlsx(`存貨明細帳_${S.invItem.item_code}_${$('i-from').value}_${$('i-to').value}`, L_COLS, S.ledgerRows));
+
+/* ---------- 叫貨 ---------- */
+// 價格由伺服器依客戶＋建案＋叫貨日期（採購：供應商）計算；送出後 bpm-webhook 會以同一套規則再確認一次
+const O = { init: null, cust: null, type: '代送', prices: {}, stock: {}, source: 'quote', seq: 0 };
+const firstToken = (s) => String(s || '').trim().split(/\s+/)[0] || '';
+const oItemByCode = (code) => O.init?.items.find((i) => i.item_code === code);
+const oItemByText = (txt) => oItemByCode(firstToken(txt));
+
+function loadOrder() {
+  return load(async () => {
+    if (!O.init) {
+      O.init = await api('order_init');
+      $('o-cust-list').innerHTML = O.init.customers.map((c) => `<option value="${esc(c.customer_code + ' ' + c.customer_name)}">`).join('');
+      $('o-item-list').innerHTML = O.init.items.map((i) => `<option value="${esc(i.item_code + ' ' + i.item_name)}">`).join('');
+      $('o-vendor').innerHTML = '<option value="">請選擇供應商</option>' + O.init.vendors.map((v) => `<option value="${esc(v.vendor_code)}">${esc(v.vendor_code + ' ' + v.vendor_name)}</option>`).join('');
+      resetOrder();
+    }
+  });
+}
+function resetOrder() {
+  O.cust = null; O.prices = {}; O.stock = {};
+  ['o-customer', 'o-project', 'o-contact', 'o-phone', 'o-address', 'o-note'].forEach((id) => { $(id).value = ''; });
+  $('o-date').value = todayTW(); $('o-due').value = todayTW();
+  $('o-proj-list').innerHTML = ''; $('o-hint').textContent = '先選客戶、建案、訂單類型與日期，再選商品；單價會依合約自動帶出。';
+  $('o-lines').innerHTML = ''; addLine(); refreshPrices();
+}
+function setType(v) {
+  O.type = v;
+  $('o-type').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  $('o-vendor-wrap').hidden = v !== '採購';
+  refreshPrices();
+}
+$('o-type').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setType(b.dataset.v); });
+
+async function pickCustomer() {
+  const code = firstToken($('o-customer').value);
+  const hit = O.init?.customers.find((c) => c.customer_code === code);
+  if (!hit) { O.cust = null; $('o-proj-list').innerHTML = ''; refreshPrices(); return; }
+  if (O.cust?.customer_code === code) return;
+  try {
+    O.cust = await api('order_customer', { customerCode: code });
+    $('o-customer').value = `${O.cust.customer_code} ${O.cust.customer_name}`;
+    $('o-proj-list').innerHTML = O.cust.projects.map((p) => `<option value="${esc(p)}">`).join('');
+    if (!$('o-address').value) $('o-address').value = O.cust.address || '';
+    $('o-hint').textContent = `付款條件：${O.cust.payment_terms || '未設定'}${O.cust.projects.length ? `　有建案報價：${O.cust.projects.join('、')}` : ''}${O.cust.customer_category === '內部' ? '　（內部客戶，可建立採購單）' : ''}`;
+  } catch (err) { toast(err.message); }
+  refreshPrices();
+}
+$('o-customer').addEventListener('change', pickCustomer);
+['o-project', 'o-date', 'o-vendor'].forEach((id) => $(id).addEventListener('change', () => {
+  if (id === 'o-date' && (!$('o-due').value || $('o-due').value < $('o-date').value)) $('o-due').value = $('o-date').value;
+  refreshPrices();
+}));
+
+let priceTimer, priceSeq = 0;
+function refreshPrices() {
+  clearTimeout(priceTimer);
+  priceTimer = setTimeout(async () => {
+    const seq = ++priceSeq;
+    try {
+      const d = await api('order_prices', {
+        orderType: O.type, orderDate: $('o-date').value || todayTW(),
+        customerCode: O.cust?.customer_code || '', projectName: $('o-project').value.trim(), vendorCode: $('o-vendor').value,
+      });
+      if (seq !== priceSeq) return;                       // 只採用最後一次查詢的結果
+      O.prices = d.prices; O.stock = d.stock; O.source = d.source;
+      $('o-lines').querySelectorAll('.o-line').forEach(updateLine);
+    } catch (err) { toast(err.message); }
+  }, 250);
+}
+
+function addLine() {
+  const div = document.createElement('div');
+  div.className = 'o-line'; div.dataset.k = String(++O.seq);
+  div.innerHTML = `<input class="item" list="o-item-list" placeholder="輸入代號或品名" autocomplete="off" aria-label="商品">
+    <input class="qty num" type="number" min="0" step="any" inputmode="decimal" placeholder="數量" aria-label="數量">
+    <input class="price num" type="number" min="0" step="any" inputmode="decimal" aria-label="單價">
+    <span class="sub">0</span><span class="stk">—</span>
+    <button type="button" class="del" aria-label="刪除這一列">✕</button>
+    <div class="meta"></div>`;
+  div.querySelector('.item').addEventListener('change', () => updateLine(div));
+  div.querySelector('.qty').addEventListener('input', () => updateLine(div));
+  div.querySelector('.price').addEventListener('input', () => { div.dataset.manual = '1'; updateLine(div); });
+  div.querySelector('.del').addEventListener('click', () => { div.remove(); if (!$('o-lines').children.length) addLine(); updateTotal(); });
+  $('o-lines').appendChild(div);
+  return div;
+}
+function updateLine(div) {
+  const it = oItemByText(div.querySelector('.item').value);
+  const priceEl = div.querySelector('.price'), meta = div.querySelector('.meta'), stk = div.querySelector('.stk');
+  if (!it) {
+    priceEl.readOnly = false; meta.textContent = div.querySelector('.item').value.trim() ? '找不到這個商品' : '';
+    stk.textContent = '—'; stk.classList.remove('short'); div.querySelector('.sub').textContent = '0'; updateTotal(); return;
+  }
+  div.querySelector('.item').value = `${it.item_code} ${it.item_name}`;
+  const p = O.prices[it.id];
+  if (p !== undefined) {                                  // 有合約價／廠商成本 → 帶入且不可修改（送出後也會以合約為準）
+    priceEl.value = p; priceEl.readOnly = true; delete div.dataset.manual;
+  } else {
+    priceEl.readOnly = false;
+    if (!div.dataset.manual) priceEl.value = '';
+  }
+  const qty = Number(div.querySelector('.qty').value) || 0;
+  const onHand = O.stock[it.id] ?? 0;
+  stk.textContent = fmtQty(onHand);
+  const short = (O.type === '自送' || O.type === '自取現金') && qty > onHand;
+  stk.classList.toggle('short', short);
+  const tag = p !== undefined ? (O.source === 'vendor' ? '廠商成本' : '合約價') : (O.type === '採購' ? '查無廠商成本，請手動輸入' : '查無報價合約，請手動輸入');
+  meta.innerHTML = `<span class="m-stk">庫存 ${fmtQty(onHand)}　</span>` + esc([it.spec, it.unit && `單位：${it.unit}`, tag, short ? `庫存不足（需求 ${fmtQty(qty)}，現有 ${fmtQty(onHand)}）` : ''].filter(Boolean).join('　'));
+  div.querySelector('.sub').textContent = fmt((Number(priceEl.value) || 0) * qty);
+  updateTotal();
+}
+function updateTotal() {
+  let total = 0;
+  $('o-lines').querySelectorAll('.o-line').forEach((d) => { total += (Number(d.querySelector('.price').value) || 0) * (Number(d.querySelector('.qty').value) || 0); });
+  $('o-total').textContent = fmt(total);
+}
+$('o-add').addEventListener('click', () => addLine().querySelector('.item').focus());
+
+$('o-submit').addEventListener('click', async () => {
+  const lines = [], problems = [];
+  $('o-lines').querySelectorAll('.o-line').forEach((d, i) => {
+    const txt = d.querySelector('.item').value.trim(), qty = Number(d.querySelector('.qty').value);
+    if (!txt && !d.querySelector('.qty').value) return;  // 空白列略過
+    const it = oItemByText(txt);
+    if (!it) { problems.push(`第 ${i + 1} 列找不到商品`); return; }
+    if (!(qty > 0)) { problems.push(`${it.item_code} 數量必須大於 0`); return; }
+    lines.push({ itemCode: it.item_code, qty, unitPrice: d.querySelector('.price').value, name: it.item_name });
+  });
+  if (!O.cust) problems.unshift('請選擇客戶');
+  if (O.type === '採購' && !$('o-vendor').value) problems.push('採購單請選擇供應商');
+  if (!lines.length) problems.push('請至少輸入一個品項');
+  if (problems.length) { await form('還不能送出', [], { desc: `<ul class="issues">${problems.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`, ok: '知道了' }); return; }
+
+  const noPrice = lines.filter((l) => l.unitPrice === '').length;
+  const shortItems = [...$('o-lines').querySelectorAll('.stk.short')].length;
+  const ok = await confirmBox('送出叫貨？',
+    `${esc(O.cust.customer_name)}　${esc(O.type)}　${esc($('o-date').value)}<br>${lines.length} 個品項，合計 ${$('o-total').textContent} 元（未稅）` +
+    (noPrice ? `<br><span style="color:var(--loss)">${noPrice} 個品項沒有單價</span>` : '') +
+    (shortItems ? `<br><span style="color:var(--loss)">${shortItems} 個品項庫存不足，送出後由主管判斷是否核准</span>` : ''),
+    '送出', false);
+  if (!ok) return;
+
+  const btn = $('o-submit');
+  btn.disabled = true; btn.textContent = '建立中…（約 5–10 秒）';
+  try {
+    const r = await api('order_submit', {
+      customerCode: O.cust.customer_code, projectName: $('o-project').value.trim(), orderType: O.type,
+      orderDate: $('o-date').value, dueDate: $('o-due').value, vendorCode: $('o-vendor').value,
+      contactPerson: $('o-contact').value, phone: $('o-phone').value, address: $('o-address').value, note: $('o-note').value,
+      lines: lines.map(({ itemCode, qty, unitPrice }) => ({ itemCode, qty, unitPrice })),
+    });
+    const res = $('o-result');
+    res.className = 'o-result' + (r.message.includes('⚠️') ? ' warn' : '');
+    res.textContent = r.message; res.hidden = false;
+    toast('叫貨單已建立');
+    delete S.loaded.stock;                                 // 庫存可能已變動，庫存查詢下次重新讀取
+    resetOrder();
+  } catch (err) {
+    await form('送出失敗', [], { desc: esc(err.message), ok: '知道了' });
+  } finally {
+    btn.disabled = false; btn.textContent = '送出叫貨';
+  }
+});
 
 /* ---------- 庫存查詢 ---------- */
 const S_COLS = [
