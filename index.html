@@ -262,6 +262,7 @@
     <button role="tab" data-tab="overview">總覽</button>
     <button role="tab" data-tab="margin">毛利明細</button>
     <button role="tab" data-tab="inventory">進銷存</button>
+    <button role="tab" data-tab="stock">庫存查詢</button>
     <button role="tab" data-tab="ar">應收</button>
     <button role="tab" data-tab="ap">應付</button>
     <button role="tab" data-tab="settings">收付款條件</button>
@@ -328,6 +329,21 @@
           <button type="button" class="btn-line" id="i-ledger-go">查詢</button>
         </div>
         <div class="grid-wrap" id="i-ledger-table"></div>
+      </div>
+    </div>
+
+    <!-- 庫存查詢（只有數量，沒有金額） -->
+    <div class="page" data-page="stock" hidden>
+      <div class="toolbar">
+        <label><input type="search" id="s-keyword" placeholder="品名或代號" enterkeyhint="search"></label>
+        <button type="button" class="btn-line" id="s-go">查詢</button>
+      </div>
+      <p class="status-line" id="s-status"></p>
+      <div class="grid-wrap" id="s-table"></div>
+      <div class="ledger-panel" id="s-history" hidden>
+        <div class="subhead"><h2 id="s-history-title"></h2></div>
+        <p class="status-line">最近 100 筆異動，新的在上面。結存＝這筆異動之後的庫存。</p>
+        <div class="grid-wrap" id="s-history-table"></div>
       </div>
     </div>
 
@@ -507,7 +523,7 @@ async function write(action, params, reloadTabs) {
     const r = await api(action, params);
     toast(r.message);
     for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
-    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
     return true;
   } catch (err) {
     toast(err.message);
@@ -526,7 +542,7 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'ar', 'ap', 'settings'];
+const TABS = ['overview', 'margin', 'inventory', 'stock', 'ar', 'ap', 'settings'];
 // 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
 function currentTab() {
   const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
@@ -535,7 +551,7 @@ function currentTab() {
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -758,6 +774,46 @@ $('i-ledger-go').addEventListener('click', loadLedger);
 $('i-export').addEventListener('click', () => exportXlsx(`進銷存月報_${$('i-month').value}`, I_COLS, iRows()));
 $('i-ledger-export').addEventListener('click', () =>
   exportXlsx(`存貨明細帳_${S.invItem.item_code}_${$('i-from').value}_${$('i-to').value}`, L_COLS, S.ledgerRows));
+
+/* ---------- 庫存查詢 ---------- */
+const S_COLS = [
+  { k: 'item_code', l: '代號' }, { k: 'item_name', l: '品名' }, { k: 'qty_on_hand', l: '目前庫存', t: 'qty' },
+  { k: 'unit', l: '單位' }, { k: 'spec', l: '規格', dash: true },
+];
+const H_COLS = [
+  { k: 'tx_date', l: '日期' }, { k: 'tx_type', l: '異動類型' },
+  { k: 'qty', l: '數量', t: 'qty' }, { k: 'balance', l: '結存', t: 'qty' },
+  { k: 'ref_doc', l: '單據', dash: true }, { k: 'original_tx_date', l: '原始日期', f: (v) => v || '' },
+];
+function loadStock() {
+  return load(async () => {
+    const d = await api('stock_search', { keyword: $('s-keyword').value });
+    S.stock = d.rows;
+    $('s-history').hidden = true;
+    $('s-status').textContent = d.keyword
+      ? `「${d.keyword}」共 ${d.rows.length} 個品項${d.rows.length === 50 ? '（只顯示前 50 筆，請縮小關鍵字）' : ''}。點選品項可查看異動紀錄。`
+      : `目前有庫存的品項共 ${d.rows.length} 個（含負庫存）。點選品項可查看異動紀錄。`;
+    $('s-table').innerHTML = table(S_COLS, d.rows, { click: true, empty: d.keyword ? '找不到符合的品項。' : '目前沒有任何庫存。' });
+    $('s-table').querySelectorAll('tr.clickable').forEach((tr) => {
+      const open = () => openStockHistory(S.stock[Number(tr.dataset.i)], tr);
+      tr.addEventListener('click', open);
+      tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+    });
+  });
+}
+function openStockHistory(item, tr) {
+  $('s-table').querySelectorAll('tr.selected').forEach((x) => x.classList.remove('selected'));
+  tr.classList.add('selected');
+  return load(async () => {
+    const d = await api('stock_history', { itemId: item.id });
+    $('s-history-title').textContent = `${item.item_code} ${item.item_name}　目前庫存 ${fmtQty(d.onHand)} ${item.unit || ''}`;
+    $('s-history-table').innerHTML = table(H_COLS, d.rows, { empty: '這個品項還沒有任何異動。' });
+    $('s-history').hidden = false;
+    $('s-history').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+}
+$('s-go').addEventListener('click', loadStock);
+$('s-keyword').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); loadStock(); } });
 
 /* ---------- 應收 ---------- */
 const AR_COLS = {
