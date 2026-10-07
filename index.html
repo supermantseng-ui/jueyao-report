@@ -192,6 +192,26 @@
   .subhead h2 { margin: 0; }
   .ledger-panel { margin-top: 28px; }
 
+  /* ---------- 到貨核對 ---------- */
+  .r-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .r-head h2 { margin: 0; }
+  .r-lines-head, .r-line { display: grid; grid-template-columns: minmax(0, 1fr) 80px 80px 80px 110px; gap: 8px; align-items: center; }
+  .r-lines-head { color: var(--muted); font-size: .85rem; padding: 0 0 6px; border-bottom: 1px solid var(--rule); }
+  .r-lines-head span:not(:first-child), .r-line .n { text-align: right; font-family: var(--num); }
+  .r-line { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .r-line.done { color: var(--muted); }
+  .r-line input { width: 100%; padding: 8px 10px; background: var(--concrete); border: 1px solid var(--rule); border-radius: 2px; color: var(--ink); text-align: right; font-family: var(--num); }
+  .r-photo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .r-photo img { max-height: 72px; border: 1px solid var(--rule); }
+  .r-photo .btn-line { cursor: pointer; }
+  @media (max-width: 720px) {
+    .r-lines-head { display: none; }
+    .r-line { grid-template-columns: 1fr 1fr 1fr; }
+    .r-line .name { grid-column: 1 / -1; }
+    .r-line .n::before { content: attr(data-label) ' '; color: var(--muted); font-family: var(--txt); font-size: .8rem; }
+    .r-line .qtyin { grid-column: 1 / -1; }
+  }
+
   /* ---------- 叫貨 ---------- */
   .o-card { background: var(--slab); padding: 20px; margin-top: 24px; }
   .o-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 16px; }
@@ -299,6 +319,7 @@
     <button role="tab" data-tab="margin">毛利明細</button>
     <button role="tab" data-tab="inventory">進銷存</button>
     <button role="tab" data-tab="order">叫貨</button>
+    <button role="tab" data-tab="receipt">到貨核對</button>
     <button role="tab" data-tab="stock">庫存查詢</button>
     <button role="tab" data-tab="ar">應收</button>
     <button role="tab" data-tab="ap">應付</button>
@@ -403,6 +424,42 @@
           <button type="button" class="btn-solid" id="o-submit">送出叫貨</button>
         </div>
         <div id="o-result" hidden></div>
+      </div>
+    </div>
+
+    <!-- 到貨核對 -->
+    <div class="page" data-page="receipt" hidden>
+      <div class="toolbar">
+        <label><input type="search" id="r-filter" placeholder="客戶、建案、供應商或單號"></label>
+        <button type="button" class="btn-line" id="r-reload">重新整理</button>
+      </div>
+      <p class="status-line" id="r-status"></p>
+      <div class="grid-wrap" id="r-orders"></div>
+
+      <div id="r-detail" hidden>
+        <div class="o-card">
+          <div class="r-head"><h2 id="r-title"></h2><span class="status-line" id="r-sub" style="margin:0"></span></div>
+          <div class="o-grid" style="margin-top:16px">
+            <label class="field"><span>供應商</span><select id="r-vendor"></select></label>
+            <label class="field"><span>廠商單號（送貨單號）</span><input id="r-vno"></label>
+            <label class="field wide"><span>備註</span><input id="r-note"></label>
+            <div class="field wide"><span>送貨單照片</span>
+              <div class="r-photo">
+                <label class="btn-line">拍照或選擇照片<input type="file" id="r-file" accept="image/*" capture="environment" hidden></label>
+                <img id="r-thumb" alt="" hidden><span class="status-line" id="r-photo-status" style="margin:0"></span>
+              </div></div>
+          </div>
+        </div>
+        <div class="o-card">
+          <div class="r-lines-head"><span>品項</span><span>訂購</span><span>已到</span><span>剩餘</span><span>本批到貨</span></div>
+          <div id="r-lines"></div>
+          <div class="o-foot">
+            <button type="button" class="btn-line" id="r-fill">本批全部到齊</button>
+            <button type="button" class="btn-solid" id="r-submit">確認到貨</button>
+          </div>
+        </div>
+        <div class="subhead"><h2>到貨紀錄</h2></div>
+        <div class="grid-wrap" id="r-history"></div>
       </div>
     </div>
 
@@ -597,7 +654,7 @@ async function write(action, params, reloadTabs) {
     const r = await api(action, params);
     toast(r.message);
     for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
-    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
     return true;
   } catch (err) {
     toast(err.message);
@@ -616,7 +673,7 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'order', 'stock', 'ar', 'ap', 'settings'];
+const TABS = ['overview', 'margin', 'inventory', 'order', 'receipt', 'stock', 'ar', 'ap', 'settings'];
 // 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
 function currentTab() {
   const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
@@ -625,7 +682,7 @@ function currentTab() {
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -1010,6 +1067,164 @@ $('o-submit').addEventListener('click', async () => {
     await form('送出失敗', [], { desc: esc(err.message), ok: '知道了' });
   } finally {
     btn.disabled = false; btn.textContent = '送出叫貨';
+  }
+});
+
+/* ---------- 到貨核對 ---------- */
+// 計算與寫入都在伺服器（SQL 函式 receipt_plan / receipt_confirm，單一交易）；送出前一律先試算讓倉管確認
+const R = { init: null, orders: [], detail: null, photoPath: '' };
+const R_COLS = [
+  { k: 'customer_name', l: '客戶' }, { k: 'order_type', l: '類型' }, { k: 'project_name', l: '建案', dash: true },
+  { k: 'order_no', l: '單號' }, { k: 'order_date', l: '叫貨日期' }, { k: 'vendor_name', l: '供應商', dash: true },
+];
+function loadReceipt() {
+  return load(async () => {
+    if (!R.init) {
+      R.init = await api('receipt_init');
+      $('r-vendor').innerHTML = '<option value="">請選擇供應商</option>' + R.init.vendors.map((v) => `<option value="${esc(v.vendor_code)}">${esc(v.vendor_code + ' ' + v.vendor_name)}</option>`).join('');
+    }
+    R.orders = (await api('receipt_orders')).rows;
+    renderReceiptOrders();
+  });
+}
+function rFiltered() {
+  const q = $('r-filter').value.trim().toLowerCase();
+  return q ? R.orders.filter((o) => ['order_no', 'customer_name', 'customer_code', 'project_name', 'vendor_name', 'vendor_code']
+    .some((k) => String(o[k] || '').toLowerCase().includes(q))) : R.orders;
+}
+function renderReceiptOrders() {
+  const rows = rFiltered();
+  $('r-status').textContent = `待到貨的代送、採購單共 ${R.orders.length} 張${rows.length !== R.orders.length ? `，符合條件 ${rows.length} 張` : ''}。點選訂單開始核對。`;
+  $('r-orders').innerHTML = table(R_COLS, rows, { click: true, empty: '目前沒有待到貨的訂單。' });
+  $('r-orders').querySelectorAll('tr.clickable').forEach((tr) => {
+    const open = () => openReceipt(rows[Number(tr.dataset.i)].order_no, tr);
+    tr.addEventListener('click', open);
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  });
+}
+$('r-filter').addEventListener('input', renderReceiptOrders);
+$('r-reload').addEventListener('click', loadReceipt);
+
+function openReceipt(orderNo, tr) {
+  $('r-orders').querySelectorAll('tr.selected').forEach((x) => x.classList.remove('selected'));
+  if (tr) tr.classList.add('selected');
+  return load(async () => {
+    const d = await api('receipt_detail', { orderNo });
+    R.detail = d; R.photoPath = '';
+    const o = R.orders.find((x) => x.order_no === orderNo) || {};
+    $('r-title').textContent = `${orderNo}　${o.customer_name || ''}`;
+    $('r-sub').textContent = `${d.order_type}${o.project_name ? '　建案：' + o.project_name : ''}　叫貨日期 ${o.order_date || ''}`;
+    $('r-vendor').value = d.default_vendor || '';
+    $('r-vendor').disabled = d.order_type === '採購' && !!d.default_vendor;   // 採購單供應商固定為訂單上的
+    $('r-vno').value = ''; $('r-note').value = '';
+    $('r-file').value = ''; $('r-thumb').hidden = true; $('r-photo-status').textContent = '';
+    $('r-lines').innerHTML = d.items.map((i, idx) => `<div class="r-line${i.remaining <= 0 ? ' done' : ''}">
+        <span class="name">${esc(i.item_code)} ${esc(i.item_name)}</span>
+        <span class="n" data-label="訂購">${fmtQty(i.ordered)}</span>
+        <span class="n" data-label="已到">${fmtQty(i.confirmed)}</span>
+        <span class="n" data-label="剩餘">${fmtQty(i.remaining)}</span>
+        <span class="qtyin"><input type="number" min="0" step="any" inputmode="decimal" data-idx="${idx}" value="${i.remaining > 0 ? i.remaining : ''}" ${i.remaining <= 0 ? 'disabled placeholder="已到齊"' : ''} aria-label="${esc(i.item_code)} 本批到貨數量"></span>
+      </div>`).join('');
+    $('r-history').innerHTML = table([
+      { k: 'received_date', l: '日期' }, { k: 'receipt_no', l: '到貨單' }, { k: 'lines', l: '品項' },
+      { k: 'vendor_order_no', l: '廠商單號', dash: true }, { k: 'note', l: '備註', dash: true }, { k: 'created_by', l: '操作人', dash: true },
+      { k: '_p', l: '照片', t: 'tag', tag: (_, r) => r.photo ? `<button type="button" class="act" data-photo="${esc(r.photo)}">查看</button>` : '—' },
+    ], d.history, { empty: '這張訂單還沒有到貨紀錄。' });
+    $('r-detail').hidden = false;
+    $('r-detail').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+}
+$('r-fill').addEventListener('click', () => {
+  $('r-lines').querySelectorAll('input:not([disabled])').forEach((inp) => { inp.value = R.detail.items[Number(inp.dataset.idx)].remaining; });
+});
+
+// 照片：在瀏覽器壓縮（最長邊 1600、JPEG 0.8）後上傳，系統只記錄儲存路徑
+function compressImage(file, maxSide = 1600, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const s = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('無法讀取這張照片，請改用 JPEG 或 PNG')); };
+    img.src = url;
+  });
+}
+$('r-file').addEventListener('change', async () => {
+  const f = $('r-file').files[0]; if (!f) return;
+  R.photoPath = ''; $('r-photo-status').textContent = '壓縮與上傳中…';
+  try {
+    const dataUrl = await compressImage(f);
+    $('r-thumb').src = dataUrl; $('r-thumb').hidden = false;
+    const r = await api('photo_upload', { mimeType: 'image/jpeg', base64: dataUrl.split(',')[1] });
+    R.photoPath = r.path;
+    $('r-photo-status').textContent = `已上傳（${Math.round(r.bytes / 1024)} KB）`;
+  } catch (err) {
+    $('r-photo-status').textContent = '上傳失敗：' + err.message;
+  }
+});
+$('r-history').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-photo]'); if (!b) return;
+  const p = b.dataset.photo;
+  if (/^https?:\/\//.test(p)) { window.open(p, '_blank'); return; }   // GAS 時期存在 Google Drive 的舊照片
+  const w = window.open('', '_blank');                                 // 先開分頁，避免被瀏覽器擋下彈出視窗
+  try { const r = await api('photo_view', { path: p }); if (w) w.location = r.url; else window.open(r.url, '_blank'); }
+  catch (err) { if (w) w.close(); toast(err.message); }
+});
+
+$('r-submit').addEventListener('click', async () => {
+  const d = R.detail; if (!d) return;
+  const lines = [];
+  $('r-lines').querySelectorAll('input:not([disabled])').forEach((inp) => {
+    const q = Number(inp.value);
+    if (q > 0) lines.push({ itemCode: d.items[Number(inp.dataset.idx)].item_code, qty: q });
+  });
+  const vendorCode = $('r-vendor').value;
+  if (!vendorCode) { toast('請選擇供應商'); return; }
+  if (!lines.length) { toast('請至少填寫一個品項的本批到貨數量'); return; }
+  if ($('r-photo-status').textContent.includes('上傳中')) { toast('照片還在上傳，請稍候'); return; }
+
+  let p;
+  try { p = await api('receipt_preview', { orderNo: d.order_no, vendorCode, lines }); }
+  catch (err) { toast(err.message); return; }
+  if (p.errors?.length) {
+    await form('還不能確認到貨', [], { desc: `<ul class="issues">${p.errors.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`, ok: '知道了' });
+    return;
+  }
+  const batch = p.items.filter((i) => Number(i.this_batch) > 0);
+  const money = p.fully_confirmed
+    ? (p.order_type === '代送'
+        ? `全部到齊，將產生應收 ${fmt(p.ar_amount)} 元、應付 ${p.ap_amount == null ? '（查無廠商成本，需人工登錄）' : fmt(p.ap_amount) + ' 元'}`
+        : `全部到齊，將產生應付 ${p.ap_amount == null ? '（查無廠商成本，需人工登錄）' : fmt(p.ap_amount) + ' 元'}`)
+    : '尚未全部到齊，這次不會產生帳款';
+  const ok = await confirmBox('確認這批到貨？',
+    `${esc(d.order_no)}　${esc(p.vendor_name || '')}<br>` +
+    batch.map((i) => `${esc(i.item_code)} 本批 ${fmtQty(i.this_batch)}（累計 ${fmtQty(i.confirmed_after)} / ${fmtQty(i.ordered)}）`).join('<br>') +
+    `<br><br>${p.order_type === '採購' ? '本批會立即入庫。' : ''}${esc(money)}` +
+    (R.photoPath ? '' : '<br><span style="color:var(--muted)">沒有附照片</span>'),
+    '確認到貨', false);
+  if (!ok) return;
+
+  const btn = $('r-submit');
+  btn.disabled = true; btn.textContent = '處理中…';
+  try {
+    const r = await api('receipt_confirm', {
+      orderNo: d.order_no, vendorCode, vendorOrderNo: $('r-vno').value, note: $('r-note').value,
+      photoPath: R.photoPath, lines,
+    });
+    toast(r.message);
+    delete S.loaded.stock; delete S.loaded.inventory; delete S.loaded.ar; delete S.loaded.ap;
+    R.orders = (await api('receipt_orders')).rows; renderReceiptOrders();
+    if (p.fully_confirmed) { $('r-detail').hidden = true; await form('到貨已確認', [], { desc: esc(r.message), ok: '好' }); }
+    else await openReceipt(d.order_no);
+  } catch (err) {
+    await form('確認失敗', [], { desc: esc(err.message), ok: '知道了' });
+  } finally {
+    btn.disabled = false; btn.textContent = '確認到貨';
   }
 });
 
