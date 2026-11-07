@@ -6,9 +6,11 @@
 <title>經營報表</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="config.js"></script>
 <style>
   /* ---------- 設定 ---------- */
@@ -290,6 +292,73 @@
     .ledger.reveal .total { animation: settle .6s ease-out .15s both; }
     @keyframes settle { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   }
+
+  /* ---------- 客戶對帳單 ---------- */
+  .stmt-view { position: fixed; inset: 0; z-index: 20; background: var(--concrete); overflow: auto; -webkit-overflow-scrolling: touch; }
+  .stmt-bar {
+    position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; background: var(--slab); border-bottom: 1px solid var(--rule);
+  }
+  .stmt-bar .who { margin-right: auto; font-weight: 700; }
+  .stmt-bar .who small { font-weight: 400; color: var(--muted); margin-left: 8px; }
+  .stmt-bar .back { background: none; border: 0; color: var(--steel); cursor: pointer; padding: 6px 4px; font-weight: 500; }
+  .stmt-bar button[disabled] { opacity: .5; cursor: wait; }
+  .stmt-scroll { padding: 24px 12px calc(48px + env(safe-area-inset-bottom, 0px)); overflow-x: auto; }
+  /* 紙張固定白底，不跟深色模式 */
+  .stmt-sheet {
+    --p-ink: #1E2B2F; --p-soft: #5F6B6E; --p-steel: #2F5D7C; --p-tint: #E7EEF3; --p-rule: #CBD4DA; --p-safety: #E8B21E;
+    width: 794px; margin: 0 auto; background: #fff; color: var(--p-ink); padding: 44px 48px 36px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 8px 24px rgba(0,0,0,.10); font-family: var(--txt); line-height: 1.6;
+  }
+  .stmt-sheet .s-co { text-align: center; padding-bottom: 12px; }
+  .stmt-sheet .s-co h1 { font-family: 'Noto Serif TC', serif; font-size: 26px; letter-spacing: .18em; margin: 0 0 4px; color: var(--p-ink); }
+  .stmt-sheet .s-co p { margin: 0; font-size: 12px; color: var(--p-soft); line-height: 1.7; }
+  .stmt-sheet .s-title { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 4px 0 18px; }
+  .stmt-sheet .s-title h2 { font-family: 'Noto Serif TC', serif; font-size: 21px; letter-spacing: .5em; margin: 0; padding: 6px 0 6px .5em;
+    color: var(--p-steel); border-top: 2px solid var(--p-steel); border-bottom: 2px solid var(--p-steel); }
+  .stmt-sheet .s-mark { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 2px; background: var(--p-safety); color: #4A3800; }
+  .stmt-sheet .s-mark.final { background: var(--p-tint); color: var(--p-steel); }
+  .stmt-sheet .s-mark.void { background: #F6DEDB; color: #B23A2E; }
+  .stmt-sheet .s-meta { display: grid; grid-template-columns: 1.25fr 1fr; gap: 0 28px; font-size: 13px; margin-bottom: 18px; }
+  .stmt-sheet .s-meta dl { margin: 0; display: grid; grid-template-columns: 72px 1fr; row-gap: 4px; }
+  .stmt-sheet .s-meta dt { color: var(--p-soft); }
+  .stmt-sheet .s-meta dd { margin: 0; }
+  .stmt-sheet .s-meta .cust { font-size: 16px; font-weight: 700; }
+  .stmt-sheet table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .stmt-sheet th, .stmt-sheet td { padding: 5px 6px; border-bottom: 1px solid var(--p-rule); text-align: left; white-space: normal; vertical-align: top; color: var(--p-ink); }
+  .stmt-sheet th { background: var(--p-steel); color: #fff; font-weight: 500; font-size: 12.5px; white-space: nowrap; border-bottom: 0; }
+  .stmt-sheet .n { text-align: right; white-space: nowrap; font-family: var(--num); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  .stmt-sheet th.n { font-family: var(--txt); font-size: 12.5px; }
+  .stmt-sheet .soft { color: var(--p-soft); font-size: 11.5px; }
+  .stmt-sheet tr.proj td { background: var(--p-tint); color: var(--p-steel); font-weight: 700; border-bottom: 1px solid var(--p-steel); padding-top: 7px; }
+  .stmt-sheet tr.sub td { font-weight: 700; border-bottom: 1px solid var(--p-steel); }
+  .stmt-sheet .s-foot { display: grid; grid-template-columns: 1fr 300px; gap: 28px; margin-top: 20px; align-items: start; }
+  .stmt-sheet .s-notes { font-size: 12.5px; line-height: 1.8; }
+  .stmt-sheet .s-notes h3 { font-size: 13px; margin: 0 0 2px; color: var(--p-steel); }
+  .stmt-sheet .s-notes p { margin: 0 0 10px; }
+  .stmt-sheet .s-sum { font-size: 13.5px; }
+  .stmt-sheet .s-sum div { display: flex; justify-content: space-between; padding: 5px 2px; border-bottom: 1px solid var(--p-rule); }
+  .stmt-sheet .s-sum div span:first-child { color: var(--p-soft); }
+  .stmt-sheet .s-sum div span:last-child { font-family: var(--num); font-variant-numeric: tabular-nums; font-size: 14.5px; }
+  .stmt-sheet .s-sum .grand { border-bottom: 0; margin-top: 6px; padding: 8px 2px 6px; font-weight: 700; }
+  .stmt-sheet .s-sum .grand span:first-child { color: var(--p-ink); font-size: 16px; }
+  .stmt-sheet .s-sum .grand span:last-child { font-size: 20px; border-bottom: 4px double var(--p-ink); padding-bottom: 1px; }
+  .stmt-sheet .s-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 22px; font-size: 12.5px; }
+  .stmt-sheet .s-sign div { border: 1px solid var(--p-rule); padding: 8px 10px; height: 90px; position: relative; }
+  .stmt-sheet .s-sign b { color: var(--p-steel); font-weight: 500; }
+  .stmt-sheet .s-sign span { position: absolute; right: 10px; bottom: 8px; color: var(--p-soft); }
+  .stmt-sheet .s-print { text-align: right; font-size: 11px; color: var(--p-soft); margin-top: 12px; }
+  body.stmt-open { overflow: hidden; }
+  @page { size: A4; margin: 10mm; }
+  @media print {
+    body.stmt-open > *:not(#stmt-view) { display: none !important; }
+    body.stmt-open .stmt-view { position: static; overflow: visible; background: #fff; }
+    body.stmt-open .stmt-bar { display: none; }
+    body.stmt-open .stmt-scroll { padding: 0; }
+    body.stmt-open .stmt-sheet { box-shadow: none; width: auto; padding: 0; }
+    .stmt-sheet tr { break-inside: avoid; }
+    .stmt-sheet th, .stmt-sheet tr.proj td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
 </style>
 </head>
 <body>
@@ -536,6 +605,17 @@
 </div>
 
 <dialog id="dlg"><form method="dialog" id="dlg-form" novalidate></form></dialog>
+<div class="stmt-view" id="stmt-view" hidden role="dialog" aria-modal="true" aria-labelledby="stmt-who">
+  <div class="stmt-bar">
+    <button type="button" class="back" id="stmt-close">‹ 返回應收</button>
+    <div class="who" id="stmt-who"></div>
+    <button type="button" class="btn-solid" id="stmt-pdf">下載 PDF</button>
+    <button type="button" class="btn-line" id="stmt-share" hidden>分享（LINE）</button>
+    <button type="button" class="btn-line" id="stmt-xlsx">下載 Excel</button>
+    <button type="button" class="btn-line" id="stmt-print">列印</button>
+  </div>
+  <div class="stmt-scroll"><div class="stmt-sheet" id="stmt-sheet"></div></div>
+</div>
 <div class="toast" id="toast" role="status" hidden></div>
 <script>
 const CFG = window.REPORT_CONFIG || {};
@@ -1282,7 +1362,7 @@ const AR_COLS = {
     { k: '未稅金額', t: 'amt', sum: true }, { k: '稅額', t: 'amt', sum: true }, { k: '含稅金額', t: 'amt', sum: true },
     { k: '已收金額', t: 'amt', sum: true }, { k: '未收餘額', t: 'amt', sum: true },
     { k: '到期日' }, { k: '狀態', t: 'tag', tag: tagPay }, { k: '帳齡', t: 'tag', tag: tagAge },
-    { k: '_act', l: '操作', t: 'act', btns: (r) => `<button type="button" class="act" data-act="inv-no" data-key="${esc(r['草稿編號'])}">發票號碼</button>${Number(r['已收金額']) === 0 || r['類型'] === '現金' ? `<button type="button" class="act danger" data-act="inv-void" data-key="${esc(r['草稿編號'])}">作廢</button>` : ''}` },
+    { k: '_act', l: '操作', t: 'act', btns: (r) => `${r['類型'] === '現金' ? '' : `<button type="button" class="act" data-act="inv-stmt" data-key="${esc(r['草稿編號'])}">對帳單</button>`}<button type="button" class="act" data-act="inv-no" data-key="${esc(r['草稿編號'])}">發票號碼</button>${Number(r['已收金額']) === 0 || r['類型'] === '現金' ? `<button type="button" class="act danger" data-act="inv-void" data-key="${esc(r['草稿編號'])}">作廢</button>` : ''}` },
   ],
   'ar-receipts': [
     { k: '收款日' }, { k: '客戶名稱', l: '客戶' }, { k: '收款金額', t: 'amt', sum: true }, { k: '已沖銷', t: 'amt', sum: true },
@@ -1366,6 +1446,172 @@ document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('cl
   exportXlsx(`${names[k]}_${today}`, cols, rows);
 }));
 
+/* ---------- 客戶對帳單 ----------
+   資料來源：report-api 的 statement action（依請款草稿編號）
+   公司抬頭與匯款資料：config.js 的 REPORT_CONFIG.COMPANY */
+const STMT_CO = Object.assign({
+  name: '〔公司名稱〕', taxId: '〔待提供〕', address: '〔待提供〕', phone: '〔待提供〕',
+  bank: '〔待提供〕', bankAccount: '〔待提供〕', bankHolder: '〔待提供〕', replyDays: 5,
+}, CFG.COMPANY || {});
+const slash = (d) => d ? String(d).slice(0, 10).replaceAll('-', '/') : '';
+let STMT = null;
+
+function stmtGroups(lines) {
+  const groups = [];
+  for (const l of lines) {
+    const key = l.project || '（未指定建案）';
+    let g = groups.find((x) => x.project === key);
+    if (!g) { g = { project: key, lines: [], subtotal: 0 }; groups.push(g); }
+    g.lines.push(l); g.subtotal += Number(l.amount) || 0;
+  }
+  return groups;
+}
+
+function stmtFile(st) {
+  return `對帳單_${st.customer.name}_${String(st.invoice.bill_date).replaceAll('-', '')}`;
+}
+
+function renderStatement(st) {
+  const inv = st.invoice, cu = st.customer, b = st.balance, t = st.totals, co = STMT_CO;
+  const groups = stmtGroups(st.lines);
+  const grand = Number(b.prev_open) + Number(t.total);
+  const mark = inv.voided ? '<span class="s-mark void">已作廢</span>'
+    : inv.invoice_no ? `<span class="s-mark final">發票 ${esc(inv.invoice_no)}</span>` : '<span class="s-mark">待客戶確認</span>';
+  $('stmt-who').innerHTML = `${esc(cu.name)}<small>${slash(inv.period_from)}～${slash(inv.period_to)}</small>`;
+
+  let rows = '';
+  for (const g of groups) {
+    rows += `<tr class="proj"><td colspan="7">建案：${esc(g.project)}</td></tr>`;
+    for (const l of g.lines) rows += `<tr>
+      <td class="n">${slash(l.date).slice(5)}</td>
+      <td>${esc(l.order_no)}<br><span class="soft">${esc(l.order_type)}</span></td>
+      <td>${esc(l.item_name)}${l.spec ? `<br><span class="soft">${esc(l.spec)}</span>` : ''}</td>
+      <td class="n">${fmtQty(l.qty)}</td><td>${esc(l.unit)}</td>
+      <td class="n">${Number(l.unit_price).toLocaleString('zh-TW', { maximumFractionDigits: 2 })}</td>
+      <td class="n">${fmt(l.amount)}</td></tr>`;
+    rows += `<tr class="sub"><td colspan="6" class="n" style="font-family:var(--txt);font-size:12.5px">${esc(g.project)} 小計（未稅）</td><td class="n">${fmt(g.subtotal)}</td></tr>`;
+  }
+
+  $('stmt-sheet').innerHTML = `
+    <header class="s-co"><h1>${esc(co.name)}</h1>
+      <p>統一編號 ${esc(co.taxId)}　電話 ${esc(co.phone)}<br>${esc(co.address)}</p></header>
+    <div class="s-title"><h2>客戶對帳單</h2>${mark}</div>
+    <section class="s-meta">
+      <dl><dt>客戶</dt><dd class="cust">${esc(cu.name)}</dd>
+        <dt>統一編號</dt><dd>${esc(cu.tax_id) || '—'}</dd>
+        <dt>聯絡資訊</dt><dd>${esc(cu.contact) || '—'}</dd></dl>
+      <dl><dt>對帳期間</dt><dd>${slash(inv.period_from)}～${slash(inv.period_to)}</dd>
+        <dt>結帳日</dt><dd>${slash(inv.bill_date)}</dd>
+        <dt>付款期限</dt><dd><b>${slash(inv.due_date)}</b>${inv.payment_terms ? `（${esc(inv.payment_terms)}）` : ''}</dd>
+        <dt>請款單號</dt><dd>${esc(inv.draft_no)}</dd></dl>
+    </section>
+    <table><thead><tr><th class="n">日期</th><th>訂單</th><th>品名</th><th class="n">數量</th><th>單位</th><th class="n">單價</th><th class="n">金額</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <section class="s-foot">
+      <div class="s-notes">
+        <h3>匯款資訊</h3><p>${esc(co.bank)}<br>帳號 ${esc(co.bankAccount)}<br>戶名 ${esc(co.bankHolder)}</p>
+        <h3>說明</h3><p>單價與金額均為未稅，營業稅於合計後計算。內容如有出入，請於收到後 ${esc(co.replyDays)} 日內與我們聯繫；無誤請簽回或以 LINE 回覆確認，我們將據此開立統一發票。</p>
+      </div>
+      <div class="s-sum">
+        <div><span>上期結欠</span><span>${fmt(b.prev_billed)}</span></div>
+        <div><span>本期收款</span><span>${Number(b.received) ? '−' + fmt(b.received) : '0'}</span></div>
+        <div><span>前期未收</span><span>${fmt(b.prev_open)}</span></div>
+        <div><span>本期銷貨（未稅）</span><span>${fmt(t.subtotal)}</span></div>
+        <div><span>營業稅 5%</span><span>${fmt(t.tax)}</span></div>
+        <div><span>本期請款（含稅）</span><span>${fmt(t.total)}</span></div>
+        <div class="grand"><span>本期應收總額</span><span>NT$ ${fmt(grand)}</span></div>
+      </div>
+    </section>
+    <section class="s-sign"><div><b>客戶確認</b><span>日期　　年　　月　　日</span></div>
+      <div><b>${esc(co.name)}</b><span>日期　　年　　月　　日</span></div></section>
+    <div class="s-print">列印日期 ${slash(todayTW())}</div>`;
+}
+
+async function openStatement(draftNo) {
+  $('app-error').textContent = '';
+  await load(async () => {
+    STMT = await api('statement', { draftNo });
+    renderStatement(STMT);
+    $('stmt-view').hidden = false; document.body.classList.add('stmt-open');
+    $('stmt-view').scrollTop = 0; $('stmt-close').focus();
+  });
+}
+function closeStatement() { $('stmt-view').hidden = true; document.body.classList.remove('stmt-open'); }
+$('stmt-close').addEventListener('click', closeStatement);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('stmt-view').hidden && !$('dlg').open) closeStatement(); });
+
+// PDF：整張轉圖後依 A4 切頁，切點對齊表格列下緣，不會把一列切成兩半
+async function stmtPdfBlob() {
+  const el = $('stmt-sheet');
+  if (document.fonts?.ready) await document.fonts.ready;
+  const scale = 2;
+  const canvas = await html2canvas(el, { scale, backgroundColor: '#ffffff' });
+  const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = 210, pageH = 297, pxPerMm = canvas.width / pageW, pagePx = Math.floor(pageH * pxPerMm);
+  const top0 = el.getBoundingClientRect().top;
+  const cuts = [...el.querySelectorAll('tr, section, header')]
+    .map((n) => Math.round((n.getBoundingClientRect().bottom - top0) * scale)).sort((a, b) => a - b);
+  let y = 0;
+  while (y < canvas.height) {
+    let end = Math.min(y + pagePx, canvas.height);
+    if (end < canvas.height) { const ok = cuts.filter((c) => c > y + 50 && c <= end); if (ok.length) end = ok[ok.length - 1]; }
+    const part = document.createElement('canvas'); part.width = canvas.width; part.height = end - y;
+    const ctx = part.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, part.width, part.height);
+    ctx.drawImage(canvas, 0, y, canvas.width, end - y, 0, 0, canvas.width, end - y);
+    if (y > 0) pdf.addPage();
+    pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pageW, (end - y) / pxPerMm);
+    y = end;
+  }
+  return pdf.output('blob');
+}
+function saveBlob(blob, name) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+async function stmtBusy(btn, label, fn) {
+  const old = btn.textContent; btn.disabled = true; btn.textContent = label;
+  try { await fn(); } catch (err) { if (err.name !== 'AbortError') toast('失敗：' + err.message); }
+  finally { btn.disabled = false; btn.textContent = old; }
+}
+$('stmt-pdf').addEventListener('click', (e) => stmtBusy(e.currentTarget, '產生中…', async () => saveBlob(await stmtPdfBlob(), stmtFile(STMT) + '.pdf')));
+try {
+  if (navigator.canShare && navigator.canShare({ files: [new File([''], 't.pdf', { type: 'application/pdf' })] })) {
+    $('stmt-share').hidden = false;
+    $('stmt-share').addEventListener('click', (e) => stmtBusy(e.currentTarget, '產生中…', async () => {
+      const file = new File([await stmtPdfBlob()], stmtFile(STMT) + '.pdf', { type: 'application/pdf' });
+      await navigator.share({ files: [file], title: stmtFile(STMT) });
+    }));
+  }
+} catch (_) {}
+$('stmt-print').addEventListener('click', () => window.print());
+$('stmt-xlsx').addEventListener('click', () => {
+  const st = STMT, inv = st.invoice, cu = st.customer, b = st.balance, t = st.totals;
+  const aoa = [[`${STMT_CO.name}　客戶對帳單`], [],
+    ['客戶', cu.name, '', '', '', '', '', '對帳期間', `${slash(inv.period_from)}～${slash(inv.period_to)}`],
+    ['統一編號', cu.tax_id || '', '', '', '', '', '', '結帳日', slash(inv.bill_date)],
+    ['聯絡資訊', cu.contact || '', '', '', '', '', '', '付款期限', slash(inv.due_date)],
+    ['請款單號', inv.draft_no, '', '', '', '', '', '發票號碼', inv.invoice_no || '（待開立）'], [],
+    ['日期', '訂單', '類型', '建案', '品名', '規格', '數量', '單位', '單價', '金額']];
+  const head = aoa.length;
+  for (const g of stmtGroups(st.lines)) {
+    for (const l of g.lines) aoa.push([slash(l.date), l.order_no, l.order_type, g.project, l.item_name, l.spec || '', Number(l.qty), l.unit, Number(l.unit_price), Number(l.amount)]);
+    aoa.push(['', '', '', `${g.project} 小計`, '', '', '', '', '', g.subtotal]);
+  }
+  aoa.push([]);
+  for (const [k, v] of [['上期結欠', b.prev_billed], ['本期收款', -b.received], ['前期未收', b.prev_open], ['本期銷貨（未稅）', t.subtotal],
+    ['營業稅 5%', t.tax], ['本期請款（含稅）', t.total], ['本期應收總額', Number(b.prev_open) + Number(t.total)]]) aoa.push(['', '', '', '', '', '', '', '', k, Number(v)]);
+  aoa.push([], [`匯款：${STMT_CO.bank}　帳號 ${STMT_CO.bankAccount}　戶名 ${STMT_CO.bankHolder}`]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 11 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 26 }, { wch: 12 }, { wch: 8 }, { wch: 6 }, { wch: 16 }, { wch: 12 }];
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let r = head; r <= range.e.r; r++) for (const c of [6, 8, 9]) {
+    const cell = ws[XLSX.utils.encode_cell({ r, c })]; if (cell && typeof cell.v === 'number') cell.z = c === 8 && r < aoa.length - 10 ? '#,##0.##' : '#,##0';
+  }
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '對帳單');
+  XLSX.writeFile(wb, stmtFile(st) + '.xlsx');
+});
+
 /* ---------- 會計操作：應收 ---------- */
 const METHODS = [['匯款', '匯款'], ['支票', '支票'], ['現金', '現金'], ['其他', '其他']];
 const custOpts = () => S.meta.customers.map((c) => [c.customer_code, `${c.customer_code} ${c.customer_name}`]);
@@ -1394,6 +1640,7 @@ $('ar-invoices').addEventListener('click', async (e) => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const key = b.dataset.key;
   const row = S.ar.invoices.find((r) => r['草稿編號'] === key);
+  if (b.dataset.act === 'inv-stmt') { openStatement(key); return; }
   if (b.dataset.act === 'inv-no') {
     const v = await form('填入統一發票號碼', [
       { name: 'invoiceNo', label: '發票號碼', value: row?.['發票號碼'] || '', hint: '兩個英文字母加八位數字，例如 AB12345678。清空後儲存可移除。' },
