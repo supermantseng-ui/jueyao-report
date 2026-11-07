@@ -3,4 +3,7 @@
 window.REPORT_CONFIG = {
   SUPABASE_URL: 'https://hnfpimshzwgerdcfhkob.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhuZnBpbXNoendnZXJkY2Zoa29iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4MjY0NTYsImV4cCI6MjEwNTQwMjQ1Nn0.aQrLDHaWuGCtqVROlXOPL3x8P40spqDgXzdzCWfQdk8',
+  COMPANY: {
+    name: '昇記崛耀有限公司', taxId: '', address: '', phone: '',
+    bank: '', bankAccount: '', bankHolder: '昇記崛耀有限公司', replyDays: 5
 };
