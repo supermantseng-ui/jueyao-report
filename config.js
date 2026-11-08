@@ -6,4 +6,5 @@ window.REPORT_CONFIG = {
   COMPANY: {
     name: '昇記崛耀有限公司', taxId: '', address: '', phone: '',
     bank: '', bankAccount: '', bankHolder: '昇記崛耀有限公司', replyDays: 5
+  }
 };
