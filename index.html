@@ -1474,7 +1474,7 @@ function stmtFile(st) {
 function renderStatement(st) {
   const inv = st.invoice, cu = st.customer, b = st.balance, t = st.totals, co = STMT_CO;
   const groups = stmtGroups(st.lines);
-  const grand = Number(b.prev_open) + Number(t.total);
+  const grand = Number(b.balance_due);
   const mark = inv.voided ? '<span class="s-mark void">已作廢</span>'
     : inv.invoice_no ? `<span class="s-mark final">發票 ${esc(inv.invoice_no)}</span>` : '<span class="s-mark">待客戶確認</span>';
   $('stmt-who').innerHTML = `${esc(cu.name)}<small>${slash(inv.period_from)}～${slash(inv.period_to)}</small>`;
@@ -1510,12 +1510,11 @@ function renderStatement(st) {
     <section class="s-foot">
       <div class="s-notes">
         <h3>匯款資訊</h3><p>${esc(co.bank)}<br>帳號 ${esc(co.bankAccount)}<br>戶名 ${esc(co.bankHolder)}</p>
-        <h3>說明</h3><p>單價與金額均為未稅，營業稅於合計後計算。內容如有出入，請於收到後 ${esc(co.replyDays)} 日內與我們聯繫；無誤請簽回或以 LINE 回覆確認，我們將據此開立統一發票。</p>
+        <h3>說明</h3><p>單價與金額均為未稅，營業稅於合計後計算；本期收款計至列印日。內容如有出入，請於收到後 ${esc(co.replyDays)} 日內與我們聯繫；無誤請簽回或以 LINE 回覆確認，我們將據此開立統一發票。</p>
       </div>
       <div class="s-sum">
         <div><span>上期結欠</span><span>${fmt(b.prev_billed)}</span></div>
-        <div><span>本期收款</span><span>${Number(b.received) ? '−' + fmt(b.received) : '0'}</span></div>
-        <div><span>前期未收</span><span>${fmt(b.prev_open)}</span></div>
+        <div><span>本期收款${Number(b.this_received) ? `<br><small>含本張請款已收 ${fmt(b.this_received)}</small>` : ''}</span><span>${Number(b.received) ? '−' + fmt(b.received) : '0'}</span></div>
         <div><span>本期銷貨（未稅）</span><span>${fmt(t.subtotal)}</span></div>
         <div><span>營業稅 5%</span><span>${fmt(t.tax)}</span></div>
         <div><span>本期請款（含稅）</span><span>${fmt(t.total)}</span></div>
@@ -1598,15 +1597,15 @@ $('stmt-xlsx').addEventListener('click', () => {
     aoa.push(['', '', '', `${g.project} 小計`, '', '', '', '', '', g.subtotal]);
   }
   aoa.push([]);
-  for (const [k, v] of [['上期結欠', b.prev_billed], ['本期收款', -b.received], ['前期未收', b.prev_open], ['本期銷貨（未稅）', t.subtotal],
-    ['營業稅 5%', t.tax], ['本期請款（含稅）', t.total], ['本期應收總額', Number(b.prev_open) + Number(t.total)]]) aoa.push(['', '', '', '', '', '', '', '', k, Number(v)]);
+  for (const [k, v] of [['上期結欠', b.prev_billed], ['本期收款', -b.received], ['本期銷貨（未稅）', t.subtotal],
+    ['營業稅 5%', t.tax], ['本期請款（含稅）', t.total], ['本期應收總額', Number(b.balance_due)]]) aoa.push(['', '', '', '', '', '', '', '', k, Number(v)]);
   aoa.push([], [`匯款：${STMT_CO.bank}　帳號 ${STMT_CO.bankAccount}　戶名 ${STMT_CO.bankHolder}`]);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{ wch: 11 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 26 }, { wch: 12 }, { wch: 8 }, { wch: 6 }, { wch: 16 }, { wch: 12 }];
   ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let r = head; r <= range.e.r; r++) for (const c of [6, 8, 9]) {
-    const cell = ws[XLSX.utils.encode_cell({ r, c })]; if (cell && typeof cell.v === 'number') cell.z = c === 8 && r < aoa.length - 10 ? '#,##0.##' : '#,##0';
+    const cell = ws[XLSX.utils.encode_cell({ r, c })]; if (cell && typeof cell.v === 'number') cell.z = c === 8 && r < aoa.length - 9 ? '#,##0.##' : '#,##0';
   }
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '對帳單');
   XLSX.writeFile(wb, stmtFile(st) + '.xlsx');
