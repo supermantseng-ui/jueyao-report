@@ -1038,7 +1038,8 @@ function resetOrder() {
 function setType(v) {
   O.type = v;
   $('o-type').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
-  $('o-vendor-wrap').hidden = v !== '採購';
+  $('o-vendor-wrap').hidden = v !== '採購' && v !== '代送';   // 代送選填（直送廠商），採購必填
+  $('o-vendor').options[0].textContent = v === '代送' ? '（選填）直送廠商' : '請選擇供應商';
   refreshPrices();
 }
 $('o-type').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setType(b.dataset.v); });
@@ -1048,13 +1049,16 @@ async function pickCustomer() {
   const hit = O.init?.customers.find((c) => c.customer_code === code);
   if (!hit) { O.cust = null; $('o-proj-list').innerHTML = ''; refreshPrices(); return; }
   if (O.cust?.customer_code === code) return;
+  // 換客戶時先清掉舊客戶的價格與資料，避免查詢期間或查詢失敗時沿用上一位客戶的合約價
+  O.cust = null; O.prices = {};
+  $('o-lines').querySelectorAll('.o-line').forEach(updateLine);
   try {
     O.cust = await api('order_customer', { customerCode: code });
     $('o-customer').value = `${O.cust.customer_code} ${O.cust.customer_name}`;
     $('o-proj-list').innerHTML = O.cust.projects.map((p) => `<option value="${esc(p)}">`).join('');
     if (!$('o-address').value) $('o-address').value = O.cust.address || '';
     $('o-hint').textContent = `付款條件：${O.cust.payment_terms || '未設定'}${O.cust.projects.length ? `　有建案報價：${O.cust.projects.join('、')}` : ''}${O.cust.customer_category === '內部' ? '　（內部客戶，可建立採購單）' : ''}`;
-  } catch (err) { toast(err.message); }
+  } catch (err) { O.cust = null; toast(err.message); }
   refreshPrices();
 }
 $('o-customer').addEventListener('change', pickCustomer);
@@ -1076,7 +1080,10 @@ function refreshPrices() {
       if (seq !== priceSeq) return;                       // 只採用最後一次查詢的結果
       O.prices = d.prices; O.stock = d.stock; O.source = d.source;
       $('o-lines').querySelectorAll('.o-line').forEach(updateLine);
-    } catch (err) { toast(err.message); }
+    } catch (err) {
+      if (seq === priceSeq) { O.prices = {}; $('o-lines').querySelectorAll('.o-line').forEach(updateLine); }
+      toast(err.message);
+    }
   }, 250);
 }
 
