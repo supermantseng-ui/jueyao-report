@@ -611,6 +611,11 @@
           <button type="button" class="btn-line" data-export="ap-bills">匯出 Excel</button>
         </div></div>
       <div class="grid-wrap" id="ap-bills"></div>
+      <div id="ap-missing-wrap" hidden>
+        <div class="subhead"><h2>待補應付</h2></div>
+        <p class="status-line" style="color:var(--loss)">以下訂單已全部到貨，但查不到廠商成本，應付帳款尚未建立。請先建立該廠商的成本，再按「補建應付」。</p>
+        <div class="grid-wrap" id="ap-missing"></div>
+      </div>
       <div class="subhead"><h2>待彙總請款（未稅）</h2><button type="button" class="btn-line" data-export="ap-unbilled">匯出 Excel</button></div>
       <div class="grid-wrap" id="ap-unbilled"></div>
       <div class="subhead"><h2>付款紀錄</h2><button type="button" class="btn-line" data-export="ap-payments">匯出 Excel</button></div>
@@ -1309,13 +1314,17 @@ $('r-submit').addEventListener('click', async () => {
   const batch = p.items.filter((i) => Number(i.this_batch) > 0);
   const money = p.fully_confirmed
     ? (p.order_type === '代送'
-        ? `全部到齊，將產生應收 ${fmt(p.ar_amount)} 元、應付 ${p.ap_amount == null ? '（查無廠商成本，需人工登錄）' : fmt(p.ap_amount) + ' 元'}`
-        : `全部到齊，將產生應付 ${p.ap_amount == null ? '（查無廠商成本，需人工登錄）' : fmt(p.ap_amount) + ' 元'}`)
+        ? `全部到齊，將產生應收 ${fmt(p.ar_amount)} 元${p.ap_amount == null ? '' : '、應付 ' + fmt(p.ap_amount) + ' 元'}`
+        : (p.ap_amount == null ? '全部到齊' : `全部到齊，將產生應付 ${fmt(p.ap_amount)} 元`))
     : '尚未全部到齊，這次不會產生帳款';
   const ok = await confirmBox('確認這批到貨？',
     `${esc(d.order_no)}　${esc(p.vendor_name || '')}<br>` +
     batch.map((i) => `${esc(i.item_code)} 本批 ${fmtQty(i.this_batch)}（累計 ${fmtQty(i.confirmed_after)} / ${fmtQty(i.ordered)}）`).join('<br>') +
     `<br><br>${p.order_type === '採購' ? '本批會立即入庫。' : ''}${esc(money)}` +
+    (p.fully_confirmed && p.ap_amount == null
+      ? `<br><span style="color:var(--loss);font-weight:700">⚠️ 「${esc(p.vendor_name || '')}」查無廠商成本：${esc(p.missing_cost || '')}，應付帳款不會產生。</span>` +
+        `<br><span style="color:var(--loss)">建議先取消、建立廠商成本後再確認；或確認後到「應付」頁籤的「待補應付」補建。</span>`
+      : '') +
     (R.photoPath ? '' : '<br><span style="color:var(--muted)">沒有附照片</span>'),
     '確認到貨', false);
   if (!ok) return;
@@ -1528,18 +1537,34 @@ const AP_COLS = {
     { k: '供應商代號' }, { k: '供應商名稱', l: '供應商' }, { k: '單號' }, { k: '類型' }, { k: '認列日' },
     { k: '未稅金額', t: 'amt', sum: true }, { k: '結帳日' },
   ],
+  'ap-missing': [
+    { k: '單號' }, { k: '類型' }, { k: '客戶' }, { k: '供應商名稱', l: '供應商' }, { k: '到齊日' },
+    { k: '缺成本品項', l: '缺成本品項', t: 'tag', tag: (v) => v ? `<span class="tag bad">${esc(v)}</span>` : '<span class="tag good">成本已齊</span>' },
+    { k: '_act', l: '操作', t: 'act', btns: (r) => `<button type="button" class="act" data-act="ap-fill" data-key="${esc(r['單號'])}">補建應付</button>` },
+  ],
 };
 function apData(key) {
   if (!S.ap) return [];
   if (key === 'ap-summary') return S.ap.summary;
   if (key === 'ap-unbilled') return S.ap.unbilled;
   if (key === 'ap-payments') return S.ap.payments;
+  if (key === 'ap-missing') return S.ap.missing || [];
   return S.apStatus === 'open' ? S.ap.bills.filter((r) => Number(r['未付餘額']) > 0) : S.ap.bills;
 }
 function renderAp() {
   for (const k of Object.keys(AP_COLS)) $(k).innerHTML = table(AP_COLS[k], apData(k),
-    { empty: { 'ap-summary': '目前沒有應付帳款。', 'ap-bills': '沒有符合條件的請款單。', 'ap-unbilled': '目前沒有待彙總的應付。', 'ap-payments': '還沒有付款紀錄。' }[k] });
+    { empty: { 'ap-summary': '目前沒有應付帳款。', 'ap-bills': '沒有符合條件的請款單。', 'ap-unbilled': '目前沒有待彙總的應付。', 'ap-payments': '還沒有付款紀錄。', 'ap-missing': '沒有待補的應付。' }[k] });
+  $('ap-missing-wrap').hidden = !(S.ap?.missing || []).length;
 }
+$('ap-missing').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act="ap-fill"]'); if (!b) return;
+  const row = (S.ap.missing || []).find((r) => r['單號'] === b.dataset.key);
+  const ok = await confirmBox('補建應付帳款？',
+    `${esc(b.dataset.key)}　${esc(row?.['供應商名稱'] || '')}　到齊日 ${esc(row?.['到齊日'] || '')}<br>` +
+    (row?.['缺成本品項'] ? `<span style="color:var(--loss)">目前仍缺成本：${esc(row['缺成本品項'])}，請先建立成本，否則會補建失敗。</span>`
+                         : '將依到齊日的廠商成本計算應付金額。'), '補建應付', false);
+  if (ok) await write('ap_backfill', { orderNo: b.dataset.key }, ['ap']);
+});
 function loadAp() { return load(async () => { S.ap = await api('ap'); renderAp(); }); }
 $('ap-status').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
