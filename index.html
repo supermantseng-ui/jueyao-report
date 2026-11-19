@@ -388,6 +388,7 @@
     <button role="tab" data-tab="margin">毛利明細</button>
     <button role="tab" data-tab="inventory">進銷存</button>
     <button role="tab" data-tab="order">叫貨</button>
+    <button role="tab" data-tab="orders">訂單查詢</button>
     <button role="tab" data-tab="receipt">到貨核對</button>
     <button role="tab" data-tab="stock">庫存查詢</button>
     <button role="tab" data-tab="ar">應收</button>
@@ -493,6 +494,29 @@
           <button type="button" class="btn-solid" id="o-submit">送出叫貨</button>
         </div>
         <div id="o-result" hidden></div>
+      </div>
+    </div>
+
+    <!-- 訂單查詢 -->
+    <div class="page" data-page="orders" hidden>
+      <div class="toolbar">
+        <label>期間 <input type="date" id="q-from"> 至 <input type="date" id="q-to"></label>
+        <label>類型 <select id="q-type"><option value="">全部</option><option>代送</option><option>自送</option><option>自取現金</option><option>採購</option></select></label>
+        <button type="button" class="btn-line" id="q-go">查詢</button>
+        <label><input type="search" id="q-filter" placeholder="篩選單號、客戶或建案"></label>
+        <span class="spacer"></span>
+        <button type="button" class="btn-line" id="q-export">匯出 Excel</button>
+      </div>
+      <p class="status-line" id="q-status"></p>
+      <div class="grid-wrap" id="q-table"></div>
+      <div class="ledger-panel" id="q-detail" hidden>
+        <div class="subhead"><h2 id="q-title"></h2></div>
+        <p class="status-line" id="q-sub"></p>
+        <div class="grid-wrap" id="q-lines"></div>
+        <div id="q-hist-wrap">
+          <div class="subhead"><h2>到貨紀錄</h2></div>
+          <div class="grid-wrap" id="q-history"></div>
+        </div>
       </div>
     </div>
 
@@ -734,7 +758,7 @@ async function write(action, params, reloadTabs) {
     const r = await api(action, params);
     toast(r.message);
     for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
-    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
     return true;
   } catch (err) {
     toast(err.message);
@@ -753,7 +777,7 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'order', 'receipt', 'stock', 'ar', 'ap', 'settings'];
+const TABS = ['overview', 'margin', 'inventory', 'order', 'orders', 'receipt', 'stock', 'ar', 'ap', 'settings'];
 // 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
 function currentTab() {
   const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
@@ -762,7 +786,7 @@ function currentTab() {
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -1347,6 +1371,85 @@ function openStockHistory(item, tr) {
 }
 $('s-go').addEventListener('click', loadStock);
 $('s-keyword').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); loadStock(); } });
+
+/* ---------- 訂單查詢（唯讀） ---------- */
+const ORDER_TAG = { '已到齊': 'good', '已出貨': 'good', '已取貨': 'good', '部分到貨': 'est', '待到貨': 'est', '待銷貨確認': 'est' };
+const tagProgress = (v) => `<span class="tag ${ORDER_TAG[v] || 'plain'}">${esc(v)}</span>`;
+const tagBilling = (v) => !v || v === '—' ? '—'
+  : v.startsWith('發票') ? `<span class="tag good">${esc(v)}</span>`
+  : v.startsWith('已請款') ? `<span class="tag plain">${esc(v)}</span>` : `<span class="tag est">${esc(v)}</span>`;
+function qCols() {
+  return [
+    { k: 'order_date', l: '叫貨日' }, { k: 'order_no', l: '單號' }, { k: 'order_type', l: '類型' },
+    { k: 'customer', l: '客戶' }, { k: 'project_name', l: '建案', dash: true },
+    ...(S.q?.showAmount ? [{ k: 'amount', l: '金額（未稅）', t: 'amt', sum: true }] : []),
+    { k: 'progress', l: '出貨／到貨', t: 'tag', tag: tagProgress },
+    { k: 'billing', l: '請款', t: 'tag', tag: tagBilling },
+  ];
+}
+function qFiltered() {
+  const k = $('q-filter').value.trim().toLowerCase();
+  const rows = S.q?.rows || [];
+  return k ? rows.filter((r) => [r.order_no, r.customer, r.project_name, r.vendor].some((x) => String(x || '').toLowerCase().includes(k))) : rows;
+}
+function renderOrders() {
+  const rows = qFiltered();
+  $('q-status').textContent = `${S.q.from} 至 ${S.q.to}，共 ${rows.length} 張${S.q.limited ? '（只顯示最近 200 張，請縮短期間）' : ''}。點選訂單可查看明細。`;
+  $('q-table').innerHTML = table(qCols(), rows, { click: true, empty: '這段期間沒有訂單。' });
+  $('q-table').querySelectorAll('tr.clickable').forEach((tr) => {
+    const open = () => openOrderDetail(rows[Number(tr.dataset.i)], tr);
+    tr.addEventListener('click', open);
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  });
+}
+function loadOrders() {
+  if (!$('q-to').value) $('q-to').value = todayTW();
+  if (!$('q-from').value) $('q-from').value = new Date(Date.now() + 8 * 3600 * 1000 - 60 * 86400000).toISOString().slice(0, 10);
+  return load(async () => {
+    S.q = await api('order_list', { from: $('q-from').value, to: $('q-to').value, orderType: $('q-type').value });
+    $('q-detail').hidden = true;
+    renderOrders();
+  });
+}
+function openOrderDetail(row, tr) {
+  $('q-table').querySelectorAll('tr.selected').forEach((x) => x.classList.remove('selected'));
+  tr.classList.add('selected');
+  return load(async () => {
+    const d = await api('order_detail', { orderNo: row.order_no });
+    $('q-title').textContent = `${d.order_no}　${d.customer}`;
+    const inv = d.invoice ? (d.invoice.invoice_no ? `發票 ${d.invoice.invoice_no}（${d.invoice.draft_no}）` : `已請款 ${d.invoice.draft_no}`) : '尚未請款';
+    $('q-sub').textContent = `${d.order_type}${d.project_name ? '　建案：' + d.project_name : ''}　叫貨日期 ${d.order_date}` +
+      `${d.vendor ? '　供應商：' + d.vendor : ''}　進度：${d.progress}　${inv}`;
+    const cols = [
+      { k: 'item_code', l: '代號' }, { k: 'item_name', l: '品名' }, { k: 'spec', l: '規格', dash: true },
+      { k: 'qty', l: '數量', t: 'qty' }, ...(d.tracksReceipt ? [{ k: 'received', l: '已到', t: 'qty' }] : []),
+      { k: 'unit', l: '單位', dash: true },
+      ...(d.showAmount ? [{ k: 'unit_price', l: '單價', t: 'cost' }, { k: 'amount', l: '金額', t: 'amt', sum: true }] : []),
+    ];
+    $('q-lines').innerHTML = table(cols, d.lines, { empty: '這張訂單沒有明細。' });
+    $('q-hist-wrap').hidden = !d.tracksReceipt;
+    $('q-history').innerHTML = table([
+      { k: 'received_date', l: '日期' }, { k: 'receipt_no', l: '到貨單' }, { k: 'lines', l: '品項' },
+      { k: 'vendor', l: '供應商', dash: true }, { k: 'vendor_order_no', l: '廠商單號', dash: true },
+      { k: 'note', l: '備註', dash: true }, { k: 'created_by', l: '操作人', dash: true },
+      { k: '_p', l: '照片', t: 'tag', tag: (_, r) => r.photo ? `<button type="button" class="act" data-photo="${esc(r.photo)}">查看</button>` : '—' },
+    ], d.history, { empty: '還沒有到貨紀錄。' });
+    $('q-detail').hidden = false;
+    $('q-detail').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+}
+$('q-go').addEventListener('click', loadOrders);
+$('q-type').addEventListener('change', loadOrders);
+$('q-filter').addEventListener('input', () => { if (S.q) { $('q-detail').hidden = true; renderOrders(); } });
+$('q-export').addEventListener('click', () => { if (S.q) exportXlsx(`訂單查詢_${S.q.from}_${S.q.to}`, qCols(), qFiltered()); });
+$('q-history').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-photo]'); if (!b) return;
+  const p = b.dataset.photo;
+  if (/^https?:\/\//.test(p)) { window.open(p, '_blank'); return; }
+  const w = window.open('', '_blank');
+  try { const r = await api('photo_view', { path: p }); if (w) w.location = r.url; else window.open(r.url, '_blank'); }
+  catch (err) { if (w) w.close(); toast(err.message); }
+});
 
 /* ---------- 應收 ---------- */
 const AR_COLS = {
