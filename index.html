@@ -1038,7 +1038,8 @@ function resetOrder() {
   ['o-customer', 'o-project', 'o-contact', 'o-phone', 'o-address', 'o-note'].forEach((id) => { $(id).value = ''; });
   $('o-date').value = todayTW(); $('o-due').value = todayTW();
   $('o-proj-list').innerHTML = ''; $('o-hint').textContent = '先選客戶、建案、訂單類型與日期，再選商品；單價會依合約自動帶出。';
-  $('o-lines').innerHTML = ''; addLine(); refreshPrices();
+  $('o-lines').innerHTML = ''; addLine();
+  setType(O.type);                                        // 依目前的訂單類型顯示供應商欄位（也會重新查價）
 }
 function setType(v) {
   O.type = v;
