@@ -241,6 +241,9 @@
   .o-total b { font-family: var(--num); font-size: 1.6rem; margin-left: 8px; }
   .o-result { margin-top: 16px; padding: 14px 16px; background: color-mix(in srgb, var(--gain) 12%, transparent); border-left: 4px solid var(--gain); }
   .o-result.warn { background: color-mix(in srgb, var(--safety) 18%, transparent); border-left-color: var(--safety); }
+  .o-result { position: relative; padding-right: 48px; }
+  .o-result .x { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; background: none; border: 0; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
+  .o-result .x:hover { color: var(--ink); }
   .o-line .m-stk { display: none; }
   @media (max-width: 720px) {
     .o-lines-head { display: none; }
@@ -1104,6 +1107,10 @@ async function pickCustomer() {
   refreshPrices();
 }
 $('o-customer').addEventListener('change', pickCustomer);
+// 開始打下一張單（在叫貨畫面任何欄位輸入）時，收起上一張單的結果訊息
+document.querySelector('[data-page="order"]').addEventListener('input', (e) => {
+  if (!$('o-result').hidden && !e.target.closest('#o-result')) $('o-result').hidden = true;
+});
 ['o-project', 'o-date', 'o-vendor'].forEach((id) => $(id).addEventListener('change', () => {
   if (id === 'o-date' && (!$('o-due').value || $('o-due').value < $('o-date').value)) $('o-due').value = $('o-date').value;
   refreshPrices();
@@ -1230,7 +1237,9 @@ $('o-submit').addEventListener('click', async () => {
     });
     const res = $('o-result');
     res.className = 'o-result' + (r.message.includes('⚠️') ? ' warn' : '');
-    res.textContent = r.message; res.hidden = false;
+    res.innerHTML = `<button type="button" class="x" aria-label="關閉訊息">✕</button><div>${esc(r.message)}</div>`;
+    res.hidden = false;
+    res.querySelector('.x').onclick = () => { res.hidden = true; };
     toast('叫貨單已建立');
     delete S.loaded.stock;                                 // 庫存可能已變動，庫存查詢下次重新讀取
     resetOrder();
