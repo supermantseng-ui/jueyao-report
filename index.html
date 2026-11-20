@@ -390,6 +390,7 @@
     <button role="tab" data-tab="order">叫貨</button>
     <button role="tab" data-tab="orders">訂單查詢</button>
     <button role="tab" data-tab="contracts">合約用量</button>
+    <button role="tab" data-tab="schedule">送貨排程</button>
     <button role="tab" data-tab="receipt">到貨核對</button>
     <button role="tab" data-tab="stock">庫存查詢</button>
     <button role="tab" data-tab="ar">應收</button>
@@ -536,6 +537,22 @@
       </div>
       <p class="status-line" id="c-status-line"></p>
       <div class="grid-wrap" id="c-table"></div>
+    </div>
+
+    <!-- 送貨排程 -->
+    <div class="page" data-page="schedule" hidden>
+      <div class="toolbar">
+        <label>顯示 <select id="d-view">
+          <option value="todo">需要處理（逾期、待通知、未排程）</option>
+          <option value="">全部未到齊的代送單</option>
+        </select></label>
+        <label><input type="search" id="d-filter" placeholder="篩選單號、客戶、建案或供應商"></label>
+        <span class="spacer"></span>
+        <button type="button" class="btn-line" id="d-reload">重新整理</button>
+        <button type="button" class="btn-line" id="d-export">匯出 Excel</button>
+      </div>
+      <p class="status-line" id="d-status"></p>
+      <div class="grid-wrap" id="d-table"></div>
     </div>
 
     <!-- 到貨核對 -->
@@ -781,7 +798,7 @@ async function write(action, params, reloadTabs) {
     const r = await api(action, params);
     toast(r.message);
     for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
-    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, contracts: loadContracts, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, contracts: loadContracts, schedule: loadSchedule, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
     return true;
   } catch (err) {
     toast(err.message);
@@ -800,7 +817,7 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'order', 'orders', 'contracts', 'receipt', 'stock', 'ar', 'ap', 'settings'];
+const TABS = ['overview', 'margin', 'inventory', 'order', 'orders', 'contracts', 'schedule', 'receipt', 'stock', 'ar', 'ap', 'settings'];
 // 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
 function currentTab() {
   const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
@@ -809,7 +826,7 @@ function currentTab() {
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, contracts: loadContracts, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, contracts: loadContracts, schedule: loadSchedule, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -1538,6 +1555,66 @@ function loadContracts() {
 $('c-status').addEventListener('change', () => { if (($('c-status').value === 'all') !== !!S.c?.all) loadContracts(); else renderContracts(); });
 $('c-filter').addEventListener('input', () => { if (S.c) renderContracts(); });
 $('c-export').addEventListener('click', () => { if (S.c) exportXlsx(`合約用量_${todayTW()}`, C_COLS, cFiltered()); });
+
+/* ---------- 送貨排程（代送） ---------- */
+const D_ORDER = { '逾期未到': 0, '待通知': 1, '未排程': 2, '已排程': 3, '已通知': 4 };
+const D_TAG = { '逾期未到': 'bad', '待通知': 'bad', '未排程': 'est', '已排程': 'plain', '已通知': 'good' };
+const fmtTime = (v) => v ? new Date(v).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+const D_COLS = [
+  { k: '狀態', t: 'tag', tag: (v) => `<span class="tag ${D_TAG[v] || 'plain'}">${esc(v)}</span>` },
+  { k: '預計到貨日', t: 'tag', tag: (v, r) => v ? `${esc(v)}${Number(r['改期次數']) ? `<br><span style="color:var(--muted);font-size:.85em">原 ${esc(r['原預計日'])}，改期 ${esc(r['改期次數'])} 次</span>` : ''}` : '—' },
+  { k: '單號' }, { k: '客戶' }, { k: '建案', dash: true }, { k: '供應商', dash: true },
+  { k: '工地聯絡人', dash: true },
+  { k: '電話', t: 'tag', tag: (v) => v ? `<a style="color:var(--steel)" href="tel:${esc(String(v).replace(/[^\d+]/g, ''))}">${esc(v)}</a>` : '—' },
+  { k: '送貨地址', dash: true },
+  { k: '通知時間', l: '工地通知', t: 'tag', tag: (v, r) => v ? `${esc(fmtTime(v))}${r['通知對象'] ? '<br>' + esc(r['通知對象']) : ''}${r['通知方式'] ? '（' + esc(r['通知方式']) + '）' : ''}` : '—' },
+  { k: '已有到貨', l: '到貨', t: 'tag', tag: (v) => v ? '<span class="tag est">部分到貨</span>' : '—' },
+  { k: '_act', l: '操作', t: 'act', btns: (r) =>
+      `<button type="button" class="act" data-act="eta" data-key="${esc(r['單號'])}">${r['預計到貨日'] ? '改期' : '預計到貨日'}</button>` +
+      (r['預計到貨日'] ? `<button type="button" class="act" data-act="notify" data-key="${esc(r['單號'])}">已通知工地</button>` : '') +
+      `<button type="button" class="act" data-act="hist" data-key="${esc(r['單號'])}">紀錄</button>` },
+];
+function dFiltered() {
+  const v = $('d-view').value, k = $('d-filter').value.trim().toLowerCase();
+  return (S.d?.rows || []).filter((r) => (v === 'todo' ? D_ORDER[r['狀態']] <= 2 : true) &&
+    (!k || ['單號', '客戶', '建案', '供應商', '工地聯絡人'].some((f) => String(r[f] ?? '').toLowerCase().includes(k))))
+    .sort((a, b) => (D_ORDER[a['狀態']] - D_ORDER[b['狀態']]) || String(a['預計到貨日'] || '9999').localeCompare(String(b['預計到貨日'] || '9999')));
+}
+function renderSchedule() {
+  const all = S.d?.rows || [], n = (st) => all.filter((r) => r['狀態'] === st).length;
+  $('d-status').textContent = `未到齊的代送單 ${all.length} 張：逾期未到 ${n('逾期未到')}、待通知 ${n('待通知')}（明天以前要到）、未排程 ${n('未排程')}、已排程 ${n('已排程')}、已通知 ${n('已通知')}。`;
+  $('d-table').innerHTML = table(D_COLS, dFiltered(), { empty: '沒有需要處理的代送單。' });
+}
+function loadSchedule() { return load(async () => { S.d = await api('schedule_list', {}); renderSchedule(); }); }
+$('d-view').addEventListener('change', () => { if (S.d) renderSchedule(); });
+$('d-filter').addEventListener('input', () => { if (S.d) renderSchedule(); });
+$('d-reload').addEventListener('click', loadSchedule);
+$('d-export').addEventListener('click', () => { if (S.d) exportXlsx(`送貨排程_${todayTW()}`, D_COLS, dFiltered()); });
+$('d-table').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const key = b.dataset.key, row = (S.d?.rows || []).find((r) => r['單號'] === key);
+  const head = `${esc(key)}　${esc(row?.['客戶'] || '')}${row?.['建案'] ? '／' + esc(row['建案']) : ''}`;
+  if (b.dataset.act === 'eta') {
+    const v = await form(row?.['預計到貨日'] ? '預計到貨日改期' : '登錄預計到貨日', [
+      { name: 'etaDate', label: '預計到貨日', type: 'date', value: row?.['預計到貨日'] || '', required: true },
+      { name: 'vendorNote', label: '廠商回覆', type: 'text', hint: '例如：潤泰業務電話回覆、上午送達' },
+    ], { desc: head + (row?.['預計到貨日'] ? '<br>改期後要重新通知工地，原日期會保留在紀錄裡。' : ''), ok: '儲存' });
+    if (v) await write('schedule_eta', { orderNo: key, ...v }, ['schedule']);
+  } else if (b.dataset.act === 'notify') {
+    const v = await form('已通知工地', [
+      { name: 'notifiedTo', label: '通知對象', type: 'text', value: row?.['工地聯絡人'] || '' },
+      { name: 'method', label: '方式', type: 'select', options: [['電話', '電話'], ['LINE', 'LINE'], ['簡訊', '簡訊'], ['當面', '當面']] },
+      { name: 'note', label: '備註', type: 'textarea' },
+    ], { desc: `${head}<br>預計 ${esc(row?.['預計到貨日'] || '')} 到貨${row?.['電話'] ? `　工地電話 ${esc(row['電話'])}` : ''}`, ok: '記錄通知' });
+    if (v) await write('schedule_notify', { orderNo: key, ...v }, ['schedule']);
+  } else if (b.dataset.act === 'hist') {
+    await load(async () => {
+      const h = await api('schedule_history', { orderNo: key });
+      const rows = (h.rows || []).map((x) => `<tr><td>${esc(x.eta_date)}</td><td>${esc(x.vendor_note || '—')}</td><td>${x.notified_at ? esc(fmtTime(x.notified_at)) + '　' + esc(x.notified_to || '') + (x.notify_method ? '（' + esc(x.notify_method) + '）' : '') : '未通知'}</td><td>${esc(fmtTime(x.created_at))}　${esc(x.created_by || '')}</td></tr>`).join('');
+      await form('排程紀錄', [], { desc: `${head}<div class="grid-wrap" style="margin-top:10px"><table><thead><tr><th>預計到貨日</th><th>廠商回覆</th><th>工地通知</th><th>登錄</th></tr></thead><tbody>${rows || '<tr><td colspan="4">還沒有排程紀錄。</td></tr>'}</tbody></table></div>`, ok: '關閉' });
+    });
+  }
+});
 
 /* ---------- 應收 ---------- */
 const AR_COLS = {
