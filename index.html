@@ -389,6 +389,7 @@
     <button role="tab" data-tab="inventory">進銷存</button>
     <button role="tab" data-tab="order">叫貨</button>
     <button role="tab" data-tab="orders">訂單查詢</button>
+    <button role="tab" data-tab="contracts">合約用量</button>
     <button role="tab" data-tab="receipt">到貨核對</button>
     <button role="tab" data-tab="stock">庫存查詢</button>
     <button role="tab" data-tab="ar">應收</button>
@@ -518,6 +519,23 @@
           <div class="grid-wrap" id="q-history"></div>
         </div>
       </div>
+    </div>
+
+    <!-- 合約用量 -->
+    <div class="page" data-page="contracts" hidden>
+      <div class="toolbar">
+        <label>狀態 <select id="c-status">
+          <option value="alert">需要處理（超量、用完、應洽新約）</option>
+          <option value="watch">注意以上</option>
+          <option value="">全部進行中</option>
+          <option value="all">含已結束的舊合約</option>
+        </select></label>
+        <label><input type="search" id="c-filter" placeholder="篩選客戶、建案、品項或合約編號"></label>
+        <span class="spacer"></span>
+        <button type="button" class="btn-line" id="c-export">匯出 Excel</button>
+      </div>
+      <p class="status-line" id="c-status-line"></p>
+      <div class="grid-wrap" id="c-table"></div>
     </div>
 
     <!-- 到貨核對 -->
@@ -763,7 +781,7 @@ async function write(action, params, reloadTabs) {
     const r = await api(action, params);
     toast(r.message);
     for (const k of Object.keys(S.loaded)) if (!reloadTabs.includes(k)) delete S.loaded[k];
-    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
+    for (const k of reloadTabs) if (S.loaded[k]) await ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, contracts: loadContracts, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[k]();
     return true;
   } catch (err) {
     toast(err.message);
@@ -782,7 +800,7 @@ const tagAge = (v) => v && v.startsWith('逾期') ? `<span class="tag bad">${esc
 const S = { meta: null, loaded: {}, margin: null, mView: 'lines', inv: null, invItem: null, ledgerRows: [], ar: null, arStatus: 'open', ap: null, apStatus: 'open' };
 
 /* ---------- 頁籤 ---------- */
-const TABS = ['overview', 'margin', 'inventory', 'order', 'orders', 'receipt', 'stock', 'ar', 'ap', 'settings'];
+const TABS = ['overview', 'margin', 'inventory', 'order', 'orders', 'contracts', 'receipt', 'stock', 'ar', 'ap', 'settings'];
 // 可看的頁籤由伺服器依角色決定（me.tabs）；網址指到沒有權限的頁籤時，改開第一個可看的頁籤
 function currentTab() {
   const h = location.hash.replace('#', ''), allowed = S.me?.tabs || [];
@@ -791,7 +809,7 @@ function currentTab() {
 function activate(tab) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
-  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({ overview: loadOverview, margin: loadMargin, inventory: loadInventory, order: loadOrder, orders: loadOrders, contracts: loadContracts, receipt: loadReceipt, stock: loadStock, ar: loadAr, ap: loadAp, settings: loadSettings })[tab](); }
 }
 document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 window.addEventListener('hashchange', () => activate(currentTab()));
@@ -1034,7 +1052,7 @@ function loadOrder() {
   });
 }
 function resetOrder() {
-  O.cust = null; O.prices = {}; O.stock = {};
+  O.cust = null; O.prices = {}; O.stock = {}; O.quota = {};
   ['o-customer', 'o-project', 'o-contact', 'o-phone', 'o-address', 'o-note'].forEach((id) => { $(id).value = ''; });
   $('o-date').value = todayTW(); $('o-due').value = todayTW();
   $('o-proj-list').innerHTML = ''; $('o-hint').textContent = '先選客戶、建案、訂單類型與日期，再選商品；單價會依合約自動帶出。';
@@ -1056,7 +1074,7 @@ async function pickCustomer() {
   if (!hit) { O.cust = null; $('o-proj-list').innerHTML = ''; refreshPrices(); return; }
   if (O.cust?.customer_code === code) return;
   // 換客戶時先清掉舊客戶的價格與資料，避免查詢期間或查詢失敗時沿用上一位客戶的合約價
-  O.cust = null; O.prices = {};
+  O.cust = null; O.prices = {}; O.quota = {};
   $('o-lines').querySelectorAll('.o-line').forEach(updateLine);
   try {
     O.cust = await api('order_customer', { customerCode: code });
@@ -1084,10 +1102,10 @@ function refreshPrices() {
         customerCode: O.cust?.customer_code || '', projectName: $('o-project').value.trim(), vendorCode: $('o-vendor').value,
       });
       if (seq !== priceSeq) return;                       // 只採用最後一次查詢的結果
-      O.prices = d.prices; O.stock = d.stock; O.source = d.source;
+      O.prices = d.prices; O.stock = d.stock; O.source = d.source; O.quota = d.quota || {};
       $('o-lines').querySelectorAll('.o-line').forEach(updateLine);
     } catch (err) {
-      if (seq === priceSeq) { O.prices = {}; $('o-lines').querySelectorAll('.o-line').forEach(updateLine); }
+      if (seq === priceSeq) { O.prices = {}; O.quota = {}; $('o-lines').querySelectorAll('.o-line').forEach(updateLine); }
       toast(err.message);
     }
   }, 250);
@@ -1102,8 +1120,8 @@ function addLine() {
     <span class="sub">0</span><span class="stk">—</span>
     <button type="button" class="del" aria-label="刪除這一列">✕</button>
     <div class="meta"></div>`;
-  div.querySelector('.item').addEventListener('change', () => updateLine(div));
-  div.querySelector('.qty').addEventListener('input', () => updateLine(div));
+  div.querySelector('.item').addEventListener('change', () => $('o-lines').querySelectorAll('.o-line').forEach(updateLine));
+  div.querySelector('.qty').addEventListener('input', () => $('o-lines').querySelectorAll('.o-line').forEach(updateLine));   // 同品項多列時，合約剩餘量要一起更新
   div.querySelector('.price').addEventListener('input', () => { div.dataset.manual = '1'; updateLine(div); });
   div.querySelector('.del').addEventListener('click', () => { div.remove(); if (!$('o-lines').children.length) addLine(); updateTotal(); });
   $('o-lines').appendChild(div);
@@ -1131,6 +1149,22 @@ function updateLine(div) {
   stk.classList.toggle('short', short);
   const tag = p !== undefined ? (O.source === 'vendor' ? '廠商成本' : '合約價') : (O.type === '採購' ? '查無廠商成本，請手動輸入' : '查無報價合約，請手動輸入');
   meta.innerHTML = `<span class="m-stk">庫存 ${fmtQty(onHand)}　</span>` + esc([it.spec, it.unit && `單位：${it.unit}`, tag, short ? `庫存不足（需求 ${fmtQty(qty)}，現有 ${fmtQty(onHand)}）` : ''].filter(Boolean).join('　'));
+  // 合約量：扣掉本單其他列同品項的數量後，看這一列還剩多少
+  const qt = O.quota?.[it.id];
+  delete div.dataset.over;
+  if (qt) {
+    let other = 0;
+    $('o-lines').querySelectorAll('.o-line').forEach((d) => {
+      if (d !== div && oItemByText(d.querySelector('.item').value)?.id === it.id) other += Number(d.querySelector('.qty').value) || 0;
+    });
+    const left = qt.remaining - other, after = left - qty;
+    const pct = qt.qty > 0 ? Math.round((qt.used + other + qty) / qt.qty * 100) : 0;
+    if (after < 0) div.dataset.over = '1';
+    const u = it.unit ? ' ' + it.unit : '';
+    meta.innerHTML += `　<span style="color:${after < 0 ? 'var(--loss)' : 'inherit'};font-weight:${after < 0 || pct >= 90 ? 700 : 400}">` +
+      esc(after < 0 ? `超過合約量 ${fmtQty(-after)}${u}（合約${qt.contract_no ? ' ' + qt.contract_no + ' ' : ''}剩 ${fmtQty(Math.max(left, 0))}${u}）`
+                    : `合約剩 ${fmtQty(left)}${u}，本單後已用 ${pct}%`) + '</span>';
+  }
   div.querySelector('.sub').textContent = fmt((Number(priceEl.value) || 0) * qty);
   updateTotal();
 }
@@ -1158,10 +1192,12 @@ $('o-submit').addEventListener('click', async () => {
 
   const noPrice = lines.filter((l) => l.unitPrice === '').length;
   const shortItems = [...$('o-lines').querySelectorAll('.stk.short')].length;
+  const overItems = [...$('o-lines').querySelectorAll('.o-line[data-over]')].length;
   const ok = await confirmBox('送出叫貨？',
     `${esc(O.cust.customer_name)}　${esc(O.type)}　${esc($('o-date').value)}<br>${lines.length} 個品項，合計 ${$('o-total').textContent} 元（未稅）` +
     (noPrice ? `<br><span style="color:var(--loss)">${noPrice} 個品項沒有單價</span>` : '') +
-    (shortItems ? `<br><span style="color:var(--loss)">${shortItems} 個品項庫存不足，送出後由主管判斷是否核准</span>` : ''),
+    (shortItems ? `<br><span style="color:var(--loss)">${shortItems} 個品項庫存不足，送出後由主管判斷是否核准</span>` : '') +
+    (overItems ? `<br><span style="color:var(--loss)">${overItems} 個品項超過合約量，請盡快與客戶洽談新合約</span>` : ''),
     '送出', false);
   if (!ok) return;
 
@@ -1467,6 +1503,41 @@ $('q-history').addEventListener('click', async (e) => {
   try { const r = await api('photo_view', { path: p }); if (w) w.location = r.url; else window.open(r.url, '_blank'); }
   catch (err) { if (w) w.close(); toast(err.message); }
 });
+
+/* ---------- 合約用量 ---------- */
+const C_ORDER = { '已超量': 0, '已用完': 1, '應洽新約': 2, '注意': 3, '正常': 4, '已結束': 5 };
+const C_TAG = { '已超量': 'bad', '已用完': 'bad', '應洽新約': 'est', '注意': 'plain', '正常': 'good', '已結束': 'plain' };
+const C_COLS = [
+  { k: '狀態', t: 'tag', tag: (v) => `<span class="tag ${C_TAG[v] || 'plain'}">${esc(v)}</span>` },
+  { k: '客戶名稱', l: '客戶' }, { k: '建案' }, { k: '合約編號', dash: true },
+  { k: '品項代號' }, { k: '品名' }, { k: '單位', dash: true },
+  { k: '合約量', t: 'qty' }, { k: '已叫貨', t: 'qty' }, { k: '剩餘量', t: 'qty' },
+  { k: '使用率', t: 'tag', tag: (v) => v == null ? '—' : `${Number(v).toLocaleString('zh-TW', { maximumFractionDigits: 1 })}%` },
+  { k: '近90天叫貨', t: 'qty' }, { k: '預計用完日', dash: true },
+];
+function cFiltered() {
+  const st = $('c-status').value, k = $('c-filter').value.trim().toLowerCase();
+  return (S.c?.rows || []).filter((r) =>
+    (st === 'alert' ? C_ORDER[r['狀態']] <= 2 : st === 'watch' ? C_ORDER[r['狀態']] <= 3 : true) &&
+    (!k || ['客戶名稱', '客戶代號', '建案', '品項代號', '品名', '合約編號'].some((f) => String(r[f] ?? '').toLowerCase().includes(k))))
+    .sort((a, b) => (C_ORDER[a['狀態']] - C_ORDER[b['狀態']]) || String(a['預計用完日'] || '9999').localeCompare(String(b['預計用完日'] || '9999')));
+}
+function renderContracts() {
+  const all = S.c?.rows || [], rows = cFiltered();
+  const n = (st) => all.filter((r) => r['狀態'] === st).length;
+  $('c-status-line').textContent = all.length
+    ? `已超量 ${n('已超量')}、已用完 ${n('已用完')}、應洽新約 ${n('應洽新約')}、注意 ${n('注意')}、正常 ${n('正常')}。「應洽新約」＝預計 120 天內用完或已用 90% 以上。`
+    : '目前沒有設定合約量的報價合約。合約量設定在報價合約明細的「合約數量」欄位。';
+  $('c-table').innerHTML = table(C_COLS, rows, { empty: '沒有符合條件的品項。' });
+}
+function loadContracts() {
+  const all = $('c-status').value === 'all';
+  return load(async () => { S.c = await api('contract_usage', { all }); S.c.all = all; renderContracts(); });
+}
+// 切換到／離開「含已結束」時要重新讀取；其他篩選只在畫面上過濾
+$('c-status').addEventListener('change', () => { if (($('c-status').value === 'all') !== !!S.c?.all) loadContracts(); else renderContracts(); });
+$('c-filter').addEventListener('input', () => { if (S.c) renderContracts(); });
+$('c-export').addEventListener('click', () => { if (S.c) exportXlsx(`合約用量_${todayTW()}`, C_COLS, cFiltered()); });
 
 /* ---------- 應收 ---------- */
 const AR_COLS = {
