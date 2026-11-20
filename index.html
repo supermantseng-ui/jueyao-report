@@ -569,6 +569,7 @@
           <div class="r-head"><h2 id="r-title"></h2><span class="status-line" id="r-sub" style="margin:0"></span></div>
           <div class="o-grid" style="margin-top:16px">
             <label class="field"><span>供應商</span><select id="r-vendor"></select></label>
+            <label class="field"><span>實際到貨日</span><input type="date" id="r-date"></label>
             <label class="field"><span>廠商單號（送貨單號）</span><input id="r-vno"></label>
             <label class="field wide"><span>備註</span><input id="r-note"></label>
             <div class="field wide"><span>送貨單照片</span>
@@ -1287,6 +1288,7 @@ function openReceipt(orderNo, tr) {
     $('r-vendor').value = d.default_vendor || '';
     $('r-vendor').disabled = d.order_type === '採購' && !!d.default_vendor;   // 採購單供應商固定為訂單上的
     $('r-vno').value = ''; $('r-note').value = '';
+    $('r-date').value = todayTW(); $('r-date').max = todayTW();
     $('r-file').value = ''; $('r-thumb').hidden = true; $('r-photo-status').textContent = '';
     $('r-lines').innerHTML = d.items.map((i, idx) => `<div class="r-line${i.remaining <= 0 ? ' done' : ''}">
         <span class="name">${esc(i.item_code)} ${esc(i.item_name)}</span>
@@ -1359,7 +1361,9 @@ $('r-submit').addEventListener('click', async () => {
   if ($('r-photo-status').textContent.includes('上傳中')) { toast('照片還在上傳，請稍候'); return; }
 
   let p;
-  try { p = await api('receipt_preview', { orderNo: d.order_no, vendorCode, lines }); }
+  const receivedDate = $('r-date').value || todayTW();
+  if (receivedDate > todayTW()) { toast('實際到貨日不能晚於今天'); return; }
+  try { p = await api('receipt_preview', { orderNo: d.order_no, vendorCode, lines, receivedDate }); }
   catch (err) { toast(err.message); return; }
   if (p.errors?.length) {
     await form('還不能確認到貨', [], { desc: `<ul class="issues">${p.errors.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`, ok: '知道了' });
@@ -1372,7 +1376,7 @@ $('r-submit').addEventListener('click', async () => {
         : (p.ap_amount == null ? '全部到齊' : `全部到齊，將產生應付 ${fmt(p.ap_amount)} 元`))
     : '尚未全部到齊，這次不會產生帳款';
   const ok = await confirmBox('確認這批到貨？',
-    `${esc(d.order_no)}　${esc(p.vendor_name || '')}<br>` +
+    `${esc(d.order_no)}　${esc(p.vendor_name || '')}　實際到貨日 <b>${esc(receivedDate)}</b>${receivedDate !== todayTW() ? '（非今天，帳款會認列在這一天）' : ''}<br>` +
     batch.map((i) => `${esc(i.item_code)} 本批 ${fmtQty(i.this_batch)}（累計 ${fmtQty(i.confirmed_after)} / ${fmtQty(i.ordered)}）`).join('<br>') +
     `<br><br>${p.order_type === '採購' ? '本批會立即入庫。' : ''}${esc(money)}` +
     (p.fully_confirmed && p.ap_amount == null
@@ -1387,7 +1391,7 @@ $('r-submit').addEventListener('click', async () => {
   btn.disabled = true; btn.textContent = '處理中…';
   try {
     const r = await api('receipt_confirm', {
-      orderNo: d.order_no, vendorCode, vendorOrderNo: $('r-vno').value, note: $('r-note').value,
+      orderNo: d.order_no, vendorCode, vendorOrderNo: $('r-vno').value, note: $('r-note').value, receivedDate,
       photoPath: R.photoPath, lines,
     });
     toast(r.message);
